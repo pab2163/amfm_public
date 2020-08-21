@@ -1,0 +1,95 @@
+---
+title: "Get Pilot Data Metrics"
+author: "Paul A. Bloom"
+date: "October 23, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(corrplot)
+library(brms)
+```
+
+# Read in pilot data
+
+This is the raw but deidentified sentence-level pilot data scored for details in each sentence 
+
+```{r}
+# one row per sentence
+pilotData = read.csv('data/cleanPilotData.csv', stringsAsFactors = FALSE)
+```
+
+# Derive parameters for understanding pilots and sample size calculations
+```{r}
+# condense to one row per memory, calculate internal details, external details, and sentences per memory
+pilotMem = pilotData %>%
+  group_by(subjectID, session, memoryNumber, timePeriod, condition, memory) %>%
+  summarize(internal = sum(totalInternal),
+            external = sum(totalExternal),
+            sentences = max(sentenceNum),
+            duration = duration[1])
+
+# get the standard deviation across memories for each subject!
+pilotMemSd = pilotMem %>%
+  ungroup() %>%
+  group_by(subjectID) %>%
+  summarize(internalSD = sd(internal),
+            externalSD = sd(external),
+            internalMean = mean(internal),
+            externalMean = mean(external),
+            n = n()) %>%
+  dplyr::filter(., !(internalSD == 0 & internalMean == 0)) %>% # filter out memories with no details
+  dplyr::select(-internalMean, -externalMean)
+```
+
+# In this chunk, run some quick regressions (separately for each subject) to get rough estimates of subject-level 'effects' of developmental time period
+
+These also give us intercepts
+```{r}
+# effects of time period on internal details
+timePeriodEffectsInternal = pilotMem %>%
+  group_by(subjectID) %>%
+  nest() %>%
+  mutate(., reg = map(data, ~lm(data = ., internal ~ timePeriod)), 
+         coefs = map(reg, ~broom::tidy(.))) %>%
+  unnest(coefs) %>%
+  dplyr::select(., subjectID, term, estimate) %>%
+  tidyr::spread(., key = term, value = estimate) %>%
+  dplyr::select(subjectID, internal_intercept = `(Intercept)`, internal_time_c = timePeriodC, internal_time_t = timePeriodT)
+
+
+# effects of time period on external details
+timePeriodEffectsExternal = pilotMem %>%
+  group_by(subjectID) %>%
+  nest() %>%
+  mutate(., reg = map(data, ~lm(data = ., external ~ timePeriod)), 
+         coefs = map(reg, ~broom::tidy(.))) %>%
+  unnest(coefs) %>%
+  dplyr::select(., subjectID, term, estimate) %>%
+  tidyr::spread(., key = term, value = estimate) %>%
+  dplyr::select(subjectID, external_intercept = `(Intercept)`, external_time_c = timePeriodC, external_time_t = timePeriodT)
+
+
+```
+
+# Here, generate correlations for each participant between external and internal details
+```{r}
+internalExternalCor = pilotMem %>%
+  group_by(subjectID) %>%
+  nest() %>%
+  mutate(., cor_internal_external = map(data, ~cor(.$internal, .$external, method = 'pearson'))) %>%
+  unnest(cor_internal_external) %>%
+  dplyr::select(-data)
+```
+
+# Save all out for use in simulations
+```{r}
+sim_params = left_join(timePeriodEffectsExternal, timePeriodEffectsInternal, by = 'subjectID') %>%
+  left_join(., internalExternalCor, by = 'subjectID') %>%
+  left_join(., pilotMemSd, by = 'subjectID')
+
+write.csv(sim_params, row.names = FALSE, file = 'data/power_sim_params.csv')
+```
+

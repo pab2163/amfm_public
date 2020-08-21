@@ -1,0 +1,123 @@
+---
+title: "sample_size_graphs"
+author: "Paul Bloom"
+date: "8/19/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+# Pull in simulation csv files and merge to a master file
+
+```{r}
+for (folder in dir('data/sim_models/')){
+  for (iter in 1:100){
+    tmp = read_csv(paste0('data/sim_models/', folder, '/model_summary_', iter, '.csv'))
+    tmp$effect_size = folder
+    if (iter == 1 & folder == 'effect_1_detail_100_subs'){
+      comb = tmp
+    }else{
+      comb = rbind(comb, tmp)
+    }
+  }
+}
+
+# write master file to csv
+write.csv(comb, file = 'data/simulated_study_model_params.csv', row.names = FALSE)
+```
+
+
+# Clean simulation data a little bit for the key interaction parameter
+
+Here, we're just looking for the interaction between the effect of the familiar music condition and internal vs. external details
+This should be the hardest of the key effects to estimate
+
+
+Recovering a parameter is defined as the approx 95% CI not overlapping 0, and the true effect size being contained in the 95% CI
+```{r}
+# power for the interaction between familiarity & detail type
+interact_sims = comb %>% 
+  dplyr::filter(term == 'condunfamiliar:type') %>%
+  mutate(sample_size = ifelse(grepl('100', effect_size), 100, 75),
+        effect_size = case_when(
+            grepl('effect_1_', effect_size) ~ 1,
+            grepl('effect_1.5_', effect_size) ~ 1.5,
+            grepl('effect_2_', effect_size) ~ 2,
+            grepl('effect_2.5_', effect_size) ~ 2.5,
+            grepl('effect_3_', effect_size) ~ 3,
+         ),
+         lwr = estimate -2.0*std.error,
+         upr = estimate + 2.0*std.error,
+         recovered = ifelse(lwr > 0 & lwr < effect_size & upr > effect_size, 1, 0))
+
+# power for the main effect of the familiar music condition
+familiarity_main_effect_sims = comb %>% 
+  dplyr::filter(term == 'condunfamiliar') %>%
+  mutate(sample_size = ifelse(grepl('100', effect_size), 100, 75),
+        effect_size = case_when(
+            grepl('effect_1_', effect_size) ~ 1,
+            grepl('effect_1.5_', effect_size) ~ 1.5,
+            grepl('effect_2_', effect_size) ~ 2,
+            grepl('effect_2.5_', effect_size) ~ 2.5,
+            grepl('effect_3_', effect_size) ~ 3,
+         ),
+         lwr = estimate -2.6*std.error,
+         upr = estimate + 2.6*std.error,
+         recovered = ifelse(upr < 0 & lwr < -1*effect_size & upr > -1*effect_size, 1, 0))
+```
+
+# Fuzzy plot of each model to look at param fits
+
+```{r}
+ggplot(interact_sims, aes(x = dataset_num, y = estimate, color = sample_size)) +
+  geom_hline(yintercept = 0, lty = 2) + 
+  geom_point() +
+  geom_errorbar(aes(ymin=lwr, ymax = upr), width = 0) +
+  facet_grid(sample_size~effect_size) +
+  theme_bw()
+
+
+
+ggplot(familiarity_main_effect_sims, aes(x = dataset_num, y = estimate, color = sample_size)) +
+  geom_hline(yintercept = 0, lty = 2) + 
+  geom_hline(aes(yintercept = -1*effect_size)) +
+  geom_point() +
+  geom_errorbar(aes(ymin=lwr, ymax = upr), width = 0, alpha = .5) +
+  facet_grid(sample_size~effect_size) +
+  theme_bw()
+```
+# Check for parameter recovery
+
+Summarize the proportion of simulations at each 'true' effect size where the parameter was correctly recovered as 'power'
+```{r}
+recovery_frame_interaction = interact_sims %>%
+  group_by(effect_size, sample_size) %>%
+  summarise(recovery_rate = (sum(recovered)+1)/(n()+2),
+            se = sqrt(recovery_rate*(1-recovery_rate)/n()), 
+            lwr = max(c(0, recovery_rate-2*se)),
+            upr = min(c(1, recovery_rate+2*se)),)
+
+recovery_frame_familiarity = familiarity_main_effect_sims %>%
+  group_by(effect_size, sample_size) %>%
+  summarise(recovery_rate = (sum(recovered)+1)/(n()+2),
+            se = sqrt(recovery_rate*(1-recovery_rate)/n()), 
+            lwr = max(c(0, recovery_rate-2*se)),
+            upr = min(c(1, recovery_rate+2*se)),)
+
+
+ggplot(recovery_frame_familiarity, aes(x = effect_size, y = recovery_rate, color= factor(sample_size))) +
+  geom_point(position = position_dodge(.05)) + 
+  geom_line(position = position_dodge(.05)) +
+  labs(x = "'True' Effect Size\nInteraction term for the effect of familiar music on internal > external details", y = 'Approximate power') 
+
+interaction_power_figure = recovery_frame_interaction %>% dplyr::filter(sample_size == 75) %>%
+  ggplot(data = ., aes(x = effect_size, y = recovery_rate)) +
+  geom_point(position = position_dodge(.05)) + 
+  geom_line(position = position_dodge(.05)) +
+  labs(x = "'True' Effect Size\nInteraction term for the effect of familiar music on internal > external details", y = "Approximate power\nProportion of simulations recovering the 'true' effect") +
+  theme_bw()
+
+```
