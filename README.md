@@ -6,6 +6,12 @@ A preprint for this registered report protocol can be found [here](https://psyar
 
 <img src="images/study_logo.png" width="400">
 
+## Data & code 
+
+# Data and code for all main analyses in the manuscript can be found in the [manuscript_analysis](manuscript_analysie/README.md) folder
+
+
+
 
 
 **Primary repo maintainer:** Paul A. Bloom (paul.bloom@columbia.edu)
