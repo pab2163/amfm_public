@@ -1,0 +1,67 @@
+---
+title: "Make Sfigure 9"
+author: "Paul Bloom"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(Matrix)
+library(dbplyr)
+library(tidyverse)
+library(ggplot2)
+library(brms)
+library(cowplot)
+library(tidybayes)
+library(emmeans)
+library(bayestestR)
+dir.create('../../results/supplemental_figs')
+```
+
+```{r load_data}
+session_data = read_csv('../../data/session_data.csv')
+mem_data = read_csv('../../data/autobio_interview_scores.csv') %>%
+  dplyr::filter(is.na(exclude_trial)) 
+```
+
+```{r merge_data}
+session_data_to_merge = dplyr::select(session_data, participant_id, 
+                          trial, session, music_evoked_affect, spont_memory, contains('exposure'))
+
+mem_data = mem_data %>%
+  left_join(., session_data_to_merge, by = c('participant_id', 'trial', 'session'))
+
+mem_data_long = mem_data %>%
+  pivot_longer(c(total_external, total_internal), names_to = 'detail_type', values_to = 'num_details')
+
+```
+
+```{r}
+mem_data_exposure = mem_data %>%
+  dplyr::mutate(., music_exposure_matching = case_when(time == 'child' ~ childhood_exposure,
+                                    time == 'adol' ~ adolescence_exposure,
+                                    time == 'adult' ~ young_adult_exposure),
+                music_exposure_nonmatching = case_when(
+                  time == 'child' ~ (adolescence_exposure + young_adult_exposure + adult_present_exposure)/3,
+                  time == 'adol' ~ (childhood_exposure + young_adult_exposure + adult_present_exposure)/3,
+                  time == 'adult' ~ (childhood_exposure + adolescence_exposure + adult_present_exposure)/3)) %>%
+  pivot_longer(c(total_external, total_internal), names_to = 'detail_type', values_to = 'num_details')
+
+
+timed_release_descriptive_plot = mem_data_exposure %>%
+  dplyr::filter(condition == 'F') %>%
+  group_by(participant_id, time) %>%
+  summarise(music_exposure_matching = mean(music_exposure_matching, na.rm = TRUE)) %>%
+  ggplot(data = ., aes(x = time, y  = music_exposure_matching)) +
+  geom_boxplot(width = 0.1, outlier.shape = NA) + 
+  geom_line(aes(group = participant_id), alpha = 0.1, color = 'blue') +
+  theme_bw() +
+  labs(y = 'Reported music exposure\nduring time window of song release', 
+       x = 'Time window of song release') +
+  scale_x_discrete(limits = c('child', 'adol', 'adult'),
+                   labels = c('Childhood\n5-9 years', 'Adolescence\n14-18 years', 'Young Adulthood\n20-25 years'))
+
+ggsave(timed_release_descriptive_plot, 
+       file = '../../results/supplemental_figs/sfig9_timed_exposure_descriptive.png',
+       width = 5, height = 4)
+```

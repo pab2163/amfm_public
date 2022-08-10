@@ -1,0 +1,138 @@
+---
+title: "Exploratory Analysis: Differences in prompted recall as a function of age at the time of the prompted event (Fig. 9)"
+author: "Paul Bloom"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(Matrix)
+library(dbplyr)
+library(tidyverse)
+library(ggplot2)
+library(brms)
+library(cowplot)
+library(tidybayes)
+library(emmeans)
+library(bayestestR)
+library(DT)
+theme_set(theme_bw())
+```
+
+### Load data and model from primary analysis
+
+```{r, warning=FALSE, message=FALSE}
+mem_data = read_csv('../../data/autobio_interview_scores.csv')
+load('../../results/models/primary_analysis_models.rda')
+```
+## Draw posterior predictive distributions 
+
+As with primary analysis, make a "grid" of all combinations of condition, time, and detail_type to extract predictions for
+
+```{r, warning=FALSE}
+pred_grid = expand.grid(condition = c('U','F', 'C'), 
+                        time = c('child', 'adol', 'adult'),
+                        detail_type = c(-0.5, 0.5)) 
+
+draws = m1_condition %>% tidybayes::add_fitted_draws(newdata = pred_grid, re_formula = NA) %>%
+  dplyr::mutate(detail_type = dplyr::recode(detail_type, '-0.5'='total_internal', '0.5'='total_external'))
+```
+
+## Summarise posterior predictions grouped by the time period and detail tyle (internal vs. external)
+
+Still keep each draw separate here, so that the total number of details and proportion of internal details can be calculated for each posterior sample. 
+
+```{r, warning=FALSE, message=FALSE}
+draws_dev = draws %>%
+  group_by(time, detail_type, .draw) %>%
+  summarise(.value = mean(.value)) %>%
+  ungroup()
+
+draws_dev_wide = draws_dev %>%
+  pivot_wider(names_from = detail_type, values_from = .value, id_cols = c('time', '.draw')) %>%
+  mutate(internal_prop = total_internal / (total_internal + total_external),
+         total = total_internal + total_external) %>%
+  group_by(time, .draw) %>%
+  summarise(mean_internal = mean(total_internal), 
+            mean_external = mean(total_external),
+            mean_internal_prop = mean(internal_prop),
+            mean_total = mean(total))
+```
+## Set up all pairwise comparisons between time periods (childhood, adolescence, young adulthood)
+
+As in primary analyses, multiply proportion of internal details by 100 to become the percentage of internal details (for visualization & reporting)
+
+```{r}
+draws_dev_wide_comparison = draws_dev_wide %>%
+  pivot_longer(contains('mean')) %>%
+  pivot_wider(names_from = time, values_from = value, id_cols = c(.draw, name)) %>%
+  dplyr::mutate(diff_adol = `adol`-`child`,
+                diff_adult = `adult`-`adol`,
+                diff_adult_child = `adult` - `child`,
+                diff_adol = ifelse(name == 'mean_internal_prop', 100*diff_adol, diff_adol),
+                diff_adult = ifelse(name == 'mean_internal_prop', 100*diff_adult, diff_adult),
+                diff_adult_child = ifelse(name == 'mean_internal_prop', 100*diff_adult_child, diff_adult_child),
+                name = dplyr::recode(name,
+                                     'mean_total'='All Details\n(Internal + External)',
+                                     'mean_internal_prop' = '% of Details Internal',
+                                     'mean_internal' = 'Internal Details',
+                                     'mean_external' = 'External Details')) %>%
+  pivot_longer(contains('diff'), names_to = 'contrast_name', values_to = 'value') %>%
+  dplyr::mutate(contrast_name = dplyr::recode(contrast_name,
+                                              'diff_adol' = ' Adolescence > Childhood', 
+                                              'diff_adult_child' =  ' Young Adulthood > Childhood',
+                                              'diff_adult' = 'Young Adulthood > Adolescence'))
+```
+
+## Plot posterior distributions for each contrast for each outcome measure
+
+```{r}
+dev_comparisons_plot = ggplot(draws_dev_wide_comparison, aes(x = value, y = name)) +
+  geom_vline(xintercept = 0, lty = 2) +
+  stat_halfeye(.width = 0.95) +
+  theme_bw() +
+  labs(x = '', y = '\n', title = 'Contrast Posterior Distributions') +
+  facet_grid(~contrast_name) +
+  theme(text = element_text(face = 'bold'), 
+        axis.text = element_text(size = 11), axis.title = element_text(size = 14),
+        strip.text = element_text(size = 12))
+```
+
+## Plot the posterior predictions themselves
+
+```{r}
+dev_plot = draws_dev_wide %>%
+  pivot_longer(c(mean_internal, mean_external)) %>%
+  mutate(name = dplyr::recode(name, 'mean_external'='External Details', 'mean_internal'=' Internal Details'),
+         time = dplyr::recode(time, 'child'='Childhood\n5-9 years old', 'adol' = 'Adolescence\n14-18 years old',
+                              'adult' = 'Young Adulthood\n20-25 years old')) %>%
+  ggplot(data = ., aes(x = time, y = value, fill = time)) +
+  facet_wrap(~name) +
+  stat_halfeye(.width = 0.95) +
+  theme(legend.position = 'none') +
+  labs(x = 'Time Period of Event', y = '# of Details') +
+  scale_fill_brewer(type = 'qual') +
+  theme(text = element_text(face = 'bold'), 
+        axis.text = element_text(size = 11), axis.title = element_text(size = 14),
+        strip.text = element_text(size = 12))
+```
+
+Put plots together in grid for Fig. 9
+
+```{r}
+dev_grid = cowplot::plot_grid(dev_plot, dev_comparisons_plot, nrow = 2, labels = c('A', 'B'), rel_heights = c(1.5, 1), align = 'v', axis = 'lr')
+cowplot::save_plot(dev_grid, filename = '../../results/fig9_developmental_grid.png', base_height = 8, base_width = 12.7)
+```
+
+# Stats for Differences in prompted recall as a function of age at the time of the prompted event (Fig. 9)
+
+Posterior medians and 95% HDIs. 
+
+```{r, message=FALSE, warning=FALSE}
+draws_dev_wide_comparison %>%
+  group_by(name, contrast_name) %>%
+  summarise(mean = mean(value),
+            d = bayestestR::hdi(value)) %>%
+  unnest(d) %>%
+  DT::datatable()
+```

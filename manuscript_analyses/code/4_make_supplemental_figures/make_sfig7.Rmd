@@ -1,0 +1,381 @@
+---
+title: "Make Sfigure 7"
+author: "Paul Bloom"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(Matrix)
+library(dbplyr)
+library(tidyverse)
+library(ggplot2)
+library(brms)
+library(cowplot)
+library(tidybayes)
+library(emmeans)
+library(bayestestR)
+```
+
+
+```{r}
+load('../../results/models/secondary_models.rda')
+session_data = read_csv('../../data/session_data.csv')
+```
+
+ 
+# Matching prereg 
+
+```{r}
+pred_grid_matching_recall = expand.grid(music_exposure_matching = 1:5,
+                                        music_exposure_nonmatching = 1:5,
+                        detail_type = c('total_internal', 'total_external'))
+```
+
+
+Matching
+```{r}
+timed_exposure_trends_matching = m4_timed_exposure_recall %>% emmeans::emtrends(~detail_type, var = 'music_exposure_matching', epred = TRUE) %>%
+  gather_emmeans_draws() %>%
+  mutate(type = 'matching') %>%
+  pivot_wider(id_cols = .draw, names_from = detail_type, values_from = .value) %>%
+  mutate(all_detail = (total_external + total_internal)/2) %>%
+  pivot_longer(-.draw) %>%
+  dplyr::mutate(name = dplyr::recode(name,  'all_detail'='All Details\n(Internal + External)',
+                                     'total_internal' = 'Internal Details',
+                                     'total_external' = 'External Details'))
+
+
+draws_matching = m4_timed_exposure_recall %>% 
+  tidybayes::add_fitted_draws(newdata = pred_grid_matching_recall, re_formula = NA) %>%
+  group_by(music_exposure_matching, detail_type, .draw) %>%
+  summarise(.value = mean(.value)) 
+
+draws_matching_wide = draws_matching %>%
+  pivot_wider(names_from = detail_type, values_from = .value, id_cols = c('.draw', 'music_exposure_matching')) %>%
+  mutate(internal_proportion = total_internal / (total_internal + total_external)) %>%
+  group_by(.draw) %>%
+  nest() %>%
+  mutate(slope = purrr::map(data, ~lm(data = ., internal_proportion ~ music_exposure_matching)$coefficients[2]*100)) %>%
+  unnest(slope) %>%
+  dplyr::select(-data, .draw, value=slope) %>%
+  dplyr::mutate(name = '% of Details Internal') 
+
+timed_exposure_trends_matching = rbind(timed_exposure_trends_matching, draws_matching_wide) %>%
+  mutate(match = 'Time window of song release')
+
+
+
+```
+
+Non-matching
+```{r}
+timed_exposure_trends_nonmatching = m4_timed_exposure_recall %>% emmeans::emtrends(~detail_type, var = 'music_exposure_nonmatching', epred = TRUE) %>%
+  gather_emmeans_draws() %>%
+  mutate(type = 'matching') %>%
+  pivot_wider(id_cols = .draw, names_from = detail_type, values_from = .value) %>%
+  mutate(all_detail = (total_external + total_internal)/2) %>%
+  pivot_longer(-.draw) %>%
+  dplyr::mutate(name = dplyr::recode(name,  'all_detail'='All Details\n(Internal + External)',
+                                     'total_internal' = 'Internal Details',
+                                     'total_external' = 'External Details'))
+
+draws_nonmatching = m4_timed_exposure_recall %>% 
+  tidybayes::add_fitted_draws(newdata = pred_grid_matching_recall, re_formula = NA) %>%
+  group_by(music_exposure_nonmatching, detail_type, .draw) %>%
+  summarise(.value = mean(.value)) 
+
+draws_nonmatching_wide = draws_nonmatching %>%
+  pivot_wider(names_from = detail_type, values_from = .value, id_cols = c('.draw', 'music_exposure_nonmatching')) %>%
+  mutate(internal_proportion = total_internal / (total_internal + total_external)) %>%
+  group_by(.draw) %>%
+  nest() %>%
+  mutate(slope = purrr::map(data, ~lm(data = ., internal_proportion ~ music_exposure_nonmatching)$coefficients[2]*100)) %>%
+  unnest(slope) %>%
+  dplyr::select(-data, .draw, value=slope) %>%
+  dplyr::mutate(name = '% of Details Internal') 
+
+timed_exposure_trends_nonmatching = rbind(timed_exposure_trends_nonmatching, draws_nonmatching_wide) %>%
+  mutate(match = 'All other time windows')
+
+
+
+```
+
+```{r}
+timed_exposure = rbind(timed_exposure_trends_matching, timed_exposure_trends_nonmatching)
+
+timed_exposure$match = factor(timed_exposure$match, levels = c('Time window of song release','All other time windows'))
+
+
+
+exposure_contrast_plot = ggplot(timed_exposure, aes(x = value, y = name, fill = match)) +
+  geom_vline(xintercept = 0, lty = 2) +
+  stat_halfeye(alpha = 0.8, .width = 0.95, normalize = 'all') +
+  theme_bw() +
+  labs(x = 'Posterior Distributions\nAssociations with timed exposure', y  = '', title = '') +
+  theme(axis.text = element_text(size = 11), 
+        axis.title = element_text(size = 12),
+        plot.margin = margin(t = 5.5, r = 10, b = 5.5, l = 3, unit = "pt"),
+        legend.position = 'none') +
+  facet_grid(cols = vars(match)) +
+  scale_fill_brewer(palette = 'Set1') +
+  scale_color_brewer(palette = 'Set1') 
+
+
+pred_grid_for_matching = expand.grid(music_exposure_matching = 1:5,
+                                        music_exposure_nonmatching = 3,
+                        detail_type = c('total_internal', 'total_external'))
+
+pred_grid_for_nonmatching = expand.grid(music_exposure_nonmatching = 1:5,
+                                        music_exposure_matching = 3,
+                        detail_type = c('total_internal', 'total_external'))
+
+
+preds_matching = tidybayes::add_fitted_draws(m4_timed_exposure_recall, newdata = pred_grid_for_matching, 
+                                             re_formula = NA) %>%
+  mutate(match = 'Time window of song release') %>%
+  dplyr::rename(exposure = music_exposure_matching,
+                l = music_exposure_nonmatching)
+
+
+preds_nonmatching = tidybayes::add_fitted_draws(m4_timed_exposure_recall, newdata = pred_grid_for_nonmatching, 
+                                                re_formula = NA) %>%
+  mutate(match = 'All other time windows') %>%
+  dplyr::rename(exposure = music_exposure_nonmatching,
+                l = music_exposure_matching)
+
+
+exposure_preds = rbind(preds_matching, preds_nonmatching)
+
+
+exposure_preds$match = factor(exposure_preds$match, levels = c('Time window of song release','All other time windows'))
+
+exposure_prediction_plot = exposure_preds %>%
+  dplyr::mutate(detail_type = dplyr::recode(detail_type, 'total_internal' = 'Internal Details',
+                                     'total_external' = 'External Details')) %>%
+  ggplot(data = ., aes(x = exposure, y = .value)) +
+  tidybayes::stat_lineribbon(.width = 0.95, alpha = 0.5, aes(fill = match, color= match)) +
+  scale_fill_brewer(palette = 'Set1') +
+  scale_color_brewer(palette = 'Set1') +
+  theme_bw() + 
+  facet_grid(~detail_type) +
+  scale_x_continuous(breaks = 1:7) +
+  labs(x = 'Participant-reported music exposure', y = '# of Details Recalled', title = '', 
+       fill = 'Music exposure timing',
+       color = 'Music exposure timing') +
+  theme(axis.text = element_text(size = 12), axis.title = element_text(size = 14),
+        strip.text = element_text(size = 12))
+
+
+exposure_plt = cowplot::plot_grid(exposure_prediction_plot, exposure_contrast_plot, 
+                                  labels = c('A: Preregistered: no covariate for time window of prompt', ''),
+                                  hjust = -0.1, 
+                                  rel_widths = c(1.3, 1))
+```
+
+# Matching alt 
+
+```{r}
+pred_grid_alt_matching_recall = expand.grid(music_exposure_matching = 1:5,
+                                        music_exposure_nonmatching = 1:5,
+                                        time = c('child', 'adol', 'adult'),
+                        detail_type = c('total_internal', 'total_external'))
+```
+
+
+Matching
+```{r}
+timed_exposure_trends_alt_matching = m5_alt_timed_exposure_recall %>% emmeans::emtrends(~detail_type, var = 'music_exposure_matching', epred = TRUE) %>%
+  gather_emmeans_draws() %>%
+  mutate(type = 'alt_matching') %>%
+  pivot_wider(id_cols = .draw, names_from = detail_type, values_from = .value) %>%
+  mutate(all_detail = (total_external + total_internal)/2) %>%
+  pivot_longer(-.draw) %>%
+  dplyr::mutate(name = dplyr::recode(name,  'all_detail'='All Details\n(Internal + External)',
+                                     'total_internal' = 'Internal Details',
+                                     'total_external' = 'External Details'))
+
+
+draws_alt_matching = m5_alt_timed_exposure_recall %>% 
+  tidybayes::add_fitted_draws(newdata = pred_grid_alt_matching_recall, re_formula = NA) %>%
+  group_by(music_exposure_matching, detail_type, .draw) %>%
+  summarise(.value = mean(.value)) 
+
+draws_alt_matching_wide = draws_alt_matching %>%
+  pivot_wider(names_from = detail_type, values_from = .value, id_cols = c('.draw', 'music_exposure_matching')) %>%
+  mutate(internal_proportion = total_internal / (total_internal + total_external)) %>%
+  group_by(.draw) %>%
+  nest() %>%
+  mutate(slope = purrr::map(data, ~lm(data = ., internal_proportion ~ music_exposure_matching)$coefficients[2]*100)) %>%
+  unnest(slope) %>%
+  dplyr::select(-data, .draw, value=slope) %>%
+  dplyr::mutate(name = '% of Details Internal') 
+
+timed_exposure_trends_alt_matching = rbind(timed_exposure_trends_alt_matching, draws_alt_matching_wide) %>%
+  mutate(match = 'Time window of song release')
+
+
+
+```
+
+Non-alt_matching
+```{r}
+timed_exposure_trends_alt_nonmatching = m5_alt_timed_exposure_recall %>% emmeans::emtrends(~detail_type, var = 'music_exposure_nonmatching', epred = TRUE) %>%
+  gather_emmeans_draws() %>%
+  mutate(type = 'alt_matching') %>%
+  pivot_wider(id_cols = .draw, names_from = detail_type, values_from = .value) %>%
+  mutate(all_detail = (total_external + total_internal)/2) %>%
+  pivot_longer(-.draw) %>%
+  dplyr::mutate(name = dplyr::recode(name,  'all_detail'='All Details\n(Internal + External)',
+                                     'total_internal' = 'Internal Details',
+                                     'total_external' = 'External Details'))
+
+draws_alt_nonmatching = m5_alt_timed_exposure_recall %>% 
+  tidybayes::add_fitted_draws(newdata = pred_grid_alt_matching_recall, re_formula = NA) %>%
+  group_by(music_exposure_nonmatching, detail_type, .draw) %>%
+  summarise(.value = mean(.value)) 
+
+draws_alt_nonmatching_wide = draws_alt_nonmatching %>%
+  pivot_wider(names_from = detail_type, values_from = .value, id_cols = c('.draw', 'music_exposure_nonmatching')) %>%
+  mutate(internal_proportion = total_internal / (total_internal + total_external)) %>%
+  group_by(.draw) %>%
+  nest() %>%
+  mutate(slope = purrr::map(data, ~lm(data = ., internal_proportion ~ music_exposure_nonmatching)$coefficients[2]*100)) %>%
+  unnest(slope) %>%
+  dplyr::select(-data, .draw, value=slope) %>%
+  dplyr::mutate(name = '% of Details Internal') 
+
+timed_exposure_trends_alt_nonmatching = rbind(timed_exposure_trends_alt_nonmatching, draws_alt_nonmatching_wide) %>%
+  mutate(match = 'All other time windows')
+
+
+
+```
+
+```{r}
+timed_exposure_alt = rbind(timed_exposure_trends_alt_matching, timed_exposure_trends_alt_nonmatching)
+
+timed_exposure_alt$match = factor(timed_exposure_alt$match, levels = c('Time window of song release','All other time windows'))
+
+exposure_contrast_plot_alt = ggplot(timed_exposure_alt, aes(x = value, y = name, fill = match)) +
+  geom_vline(xintercept = 0, lty = 2) +
+  stat_halfeye(alpha = 0.8, .width = 0.95, normalize = 'all') +
+  theme_bw() +
+  labs(x = 'Posterior Distributions\nAssociations with timed exposure', y  = '', title = '') +
+  theme(axis.text = element_text(size = 11), 
+        axis.title = element_text(size = 12),
+        plot.margin = margin(t = 5.5, r = 10, b = 5.5, l = 3, unit = "pt"),
+        legend.position = 'none') +
+  facet_grid(cols = vars(match)) +
+  scale_fill_brewer(palette = 'Set1') +
+  scale_color_brewer(palette = 'Set1') 
+
+
+
+pred_grid_for_alt_matching = expand.grid(music_exposure_matching = 1:5,
+                                        music_exposure_nonmatching = 3,
+                                        time = c('child', 'adol', 'adult'),
+                        detail_type = c('total_internal', 'total_external'))
+
+pred_grid_for_alt_nonmatching = expand.grid(music_exposure_nonmatching = 1:5,
+                                        music_exposure_matching = 3,
+                                        time = c('child', 'adol', 'adult'),
+                        detail_type = c('total_internal', 'total_external'))
+
+
+preds_alt_matching = tidybayes::add_fitted_draws(m5_alt_timed_exposure_recall, newdata = pred_grid_for_alt_matching, 
+                                             re_formula = NA) %>%
+  mutate(match = 'Time window of song release') %>%
+  dplyr::rename(exposure = music_exposure_matching,
+                l = music_exposure_nonmatching) %>%
+  group_by(l, exposure, .draw, detail_type, match) %>%
+  summarise(.value = mean(.value))
+
+
+preds_alt_nonmatching = tidybayes::add_fitted_draws(m5_alt_timed_exposure_recall, newdata = pred_grid_for_alt_nonmatching, 
+                                                re_formula = NA) %>%
+  mutate(match = 'All other time windows') %>%
+  dplyr::rename(exposure = music_exposure_nonmatching,
+                l = music_exposure_matching) %>%
+  group_by(l, exposure, .draw, detail_type, match) %>%
+  summarise(.value = mean(.value))
+
+
+exposure_preds_alt = rbind(preds_alt_matching, preds_alt_nonmatching)
+
+
+exposure_preds_alt$match = factor(exposure_preds_alt$match, levels = c('Time window of song release','All other time windows'))
+
+exposure_prediction_plot_alt = exposure_preds_alt %>%
+  dplyr::mutate(detail_type = dplyr::recode(detail_type, 'total_internal' = 'Internal Details',
+                                     'total_external' = 'External Details')) %>%
+  ggplot(data = ., aes(x = exposure, y = .value)) +
+  tidybayes::stat_lineribbon(.width = 0.95, alpha = 0.5, aes(fill = match, color= match)) +
+  scale_fill_brewer(palette = 'Set1') +
+  scale_color_brewer(palette = 'Set1') +
+  theme_bw() + 
+  facet_grid(~detail_type) +
+  scale_x_continuous(breaks = 1:7) +
+  labs(x = 'Participant-reported music exposure', y = '# of Details Recalled', 
+       title = '', 
+       fill = 'Music exposure timing',
+       color = 'Music exposure timing') +
+  theme(axis.text = element_text(size = 12), axis.title = element_text(size = 14),
+        strip.text = element_text(size = 12)) 
+
+
+alt_exposure = cowplot::plot_grid(exposure_prediction_plot_alt, exposure_contrast_plot_alt,
+                                  labels = c('B: With covariate for time window of prompt', ''),
+                                  hjust = -0.1, 
+                                  rel_widths = c(1.3, 1))
+
+```
+
+
+```{r}
+exposure_timed_plot = cowplot::plot_grid(exposure_plt, alt_exposure, nrow = 2)
+
+cowplot::save_plot(exposure_timed_plot, filename = '../../results/supplemental_figs/sfig7_timed_exposure_deliberate_recall.png',
+                   base_width = 13, base_height = 8)
+
+```
+
+
+# Contrast betas & HDIs
+```{r}
+timed_exposure_alt %>%
+  group_by(name, match) %>%
+  summarise(mean = mean(value),
+    hdi = bayestestR::hdi(value)) %>%
+  unnest(hdi)
+
+timed_exposure %>%
+  group_by(name, match) %>%
+  summarise(mean = mean(value),
+            hdi = bayestestR::hdi(value, ci = 0.95)) %>%
+  unnest(hdi)
+
+corrected_interval_calcs = timed_exposure %>%
+  dplyr::filter(name %in% c('External Details', 'Internal Details')) %>%
+  group_by(name, match) %>%
+  summarise(proportion_consistent = case_when(
+    median(value) >= 0 ~ sum(value >= 0)/n(),
+    median(value) < 0 ~ sum(value < 0)/n())) %>%
+  ungroup() %>%
+  mutate(rank = rank(proportion_consistent),
+         width = 1 - (0.05/rank),
+         upr_corrected = 1 - (0.05/2)/rank,
+         lwr_corrected = 1 - upr_corrected)
+
+
+corrected_intervals = timed_exposure %>%
+  dplyr::filter(name %in% c('External Details', 'Internal Details')) %>%
+  left_join(corrected_interval_calcs, by = c('name', 'match')) %>%
+  group_by(name, match) %>%
+  summarise(mean = mean(value),
+            rank = rank[1],
+            hdi = bayestestR::hdi(value, ci = width[1])) %>%
+  unnest(hdi)
+
+```

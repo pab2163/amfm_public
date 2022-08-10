@@ -1,0 +1,90 @@
+---
+title: "Make Sfigs 3-4"
+author: "Paul Bloom"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(Matrix)
+library(dbplyr)
+library(tidyverse)
+library(ggplot2)
+library(brms)
+library(cowplot)
+library(tidybayes)
+library(emmeans)
+library(bayestestR)
+theme_set(theme_bw())
+```
+
+
+```{r load_data}
+session_data = read_csv('../../data/session_data.csv')
+mem_data = read_csv('../../data/autobio_interview_scores.csv') %>%
+  dplyr::filter(is.na(exclude_trial)) 
+```
+
+```{r merge_data}
+session_data_to_merge = dplyr::select(session_data, participant_id, 
+                          trial, session, music_evoked_affect, spont_memory, clip_liking, contains('exposure'))
+
+mem_data = mem_data %>%
+  left_join(., session_data_to_merge, by = c('participant_id', 'trial', 'session'))
+
+mem_data_long = mem_data %>%
+  pivot_longer(c(total_external, total_internal), names_to = 'detail_type', values_to = 'num_details')
+```
+
+# Make sFig 4
+
+```{r}
+intern_extern_summary = mem_data %>%
+  dplyr::filter(is.na(exclude_trial)) %>%
+  pivot_longer(c(total_external, total_internal), names_to = 'detail_type', values_to = 'num_details') %>%
+  group_by(participant_id, condition, detail_type) %>%
+  summarise(mean_details = mean(num_details)) %>%
+  dplyr::mutate(., detail_type = dplyr::recode(detail_type, 'total_external'='External Details', 'total_internal'=' Internal Details'),
+                condition = dplyr::recode(condition, 'U'='Unfamiliar Music', 'F'='Familiar Music', 'C'='Non-music Clips'))
+
+mean_median_summary = mem_data %>%
+  dplyr::filter(is.na(exclude_trial)) %>%
+  pivot_longer(c(total_external, total_internal), names_to = 'detail_type', values_to = 'num_details') %>%
+  group_by(participant_id, condition, detail_type) %>%
+  summarise(num_details = mean(num_details)) %>%
+  dplyr::mutate(., detail_type = dplyr::recode(detail_type, 'total_external'='External Details', 'total_internal'=' Internal Details'),
+                condition = dplyr::recode(condition, 'U'='Unfamiliar Music', 'F'='Familiar Music', 'C'='Non-music Clips'))
+
+raw_summary_familiar_unfamiliar = ggplot(mean_median_summary, aes(x =condition, y = num_details)) +
+  facet_grid(~detail_type) +
+  geom_line(data = intern_extern_summary, aes(y = mean_details, group = participant_id), alpha = 0.1, width = 0.5, color = 'blue',
+            position = position_dodge(0.1)) +
+  stat_summary(fun.data = mean_cl_boot, position = position_nudge(-0.05)) +
+  labs(x = 'Condition', y = '# of Details') +
+  scale_x_discrete(limits = c('Familiar Music', 'Unfamiliar Music', 'Non-music Clips'))
+
+
+ggsave(raw_summary_familiar_unfamiliar, file = '../../results/supplemental_figs/sfig4_prompted_recall_summary.png',
+       width = 8, height = 4)
+
+```
+
+
+# Liking (sFig 3)
+```{r}
+liking_plot = mem_data %>%
+  dplyr::filter(!is.na(clip_liking), clip_liking != 0) %>%
+  group_by(participant_id, condition) %>%
+  summarise(clip_liking = mean(clip_liking)) %>%
+  ggplot(data = ., aes(x = condition, y = clip_liking)) +
+  geom_boxplot(width = 0.1, outlier.shape = NA) +
+  geom_line(aes(group = participant_id), alpha = 0.1, color = 'blue') +
+  labs(x = 'Music Condition', y = 'Self-reported liking of clip') +
+  scale_x_discrete(labels = c('Familiar', 'Unfamiliar')) +
+  scale_y_continuous(breaks = 1:5) +
+  ylim(1, 5)
+
+ggsave(liking_plot, file = '../../results/supplemental_figs/sfig3_liking_condition.png',
+       width = 4, height = 4)
+```
+

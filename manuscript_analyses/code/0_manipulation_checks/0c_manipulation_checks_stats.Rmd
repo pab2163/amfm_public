@@ -1,0 +1,71 @@
+---
+title: "Manipulation Check Statistics"
+author: "Paul Bloom"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load Packages 
+```{r, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(brms)
+library(emmeans)
+library(tidybayes)
+library(bayestestR)
+library(DT)
+theme_set(theme_bw())
+```
+
+## Load models previously fit in `0a_manipulation_check_models.Rmd`
+```{r}
+load('../../results/models/manipulation_check_models.rda')
+```
+
+# Music Familiarity Manipulation Check (Fig. 4A)
+
+Differences in participant-reported familiarity between clips in the familiar music (`F`) vs. unfamiliar music (`U`) conditions. The table below shows posterior medians and 95% HDI, on the probit scale. 
+
+```{r, warning=FALSE}
+# first generate estimated marginal means for each condition with emmeans()
+emmeans::emmeans(m1_familiarity, specs = 'condition') %>%
+  # pairs() computes all pairwise comparisons
+  pairs() %>%
+  as.data.frame() %>%
+  DT::datatable()
+```
+
+# Music Exposure Timing Manipulation Check (Fig. 4B)
+
+Estimates (posterior medians) and 95% HDI for the average proportion of trials where participants rated having the most (or tied for most) exposure during the time period of release, as a function of the time period of release. 
+
+```{r}
+matching_table = conditional_effects(m2_matching)[[1]]
+dplyr::select(matching_table, -matching, -participant_id, -cond__, -effect1__) %>%
+  DT::datatable()
+```
+
+# Spontaneous Music-Evoked Recall (Fig. 4C)
+
+All pairwise comparisons for differences in the likelihood of spontaneous memory as a function of condition (`F`=Familiar Music, `U`=Unfamiliar Music, `C`=Non-music clips`). The table below shows posterior medians and 95% HDI for each contrast in log odds.
+
+```{r}
+emmeans::emmeans(m3_spontaneous, specs = 'condition') %>%
+  pairs() %>%
+  as.data.frame() %>%
+  DT::datatable()
+```
+
+
+# Coincidence between spontaneous and prompted recall (Fig. 4D)
+
+All pairwise comparisons for differences in the likelihood of coincidence between spontaneous and prompted memory as a function of condition. The table below shows posterior medians and 95% HDI for each contrast in log odds. 
+
+```{r}
+emmeans::emmeans(m4_coincidence, specs = 'condition') %>%
+  pairs()%>%
+  as.data.frame() %>%
+  DT::datatable()
+```

@@ -1,0 +1,109 @@
+---
+title: "primary_analyses"
+author: "Paul Bloom"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(Matrix)
+library(dbplyr)
+library(tidyverse)
+library(ggplot2)
+library(brms)
+library(cowplot)
+library(tidybayes)
+library(emmeans)
+dir.create('../../results/models')
+```
+
+
+```{r load_data}
+session_data = read_csv('../../data/session_data.csv')
+mem_data = read_csv('../../data/autobio_interview_scores.csv') %>%
+  dplyr::filter(is.na(exclude_trial))
+seed = 11291993 
+```
+
+```{r merge_data}
+session_data_to_merge = dplyr::select(session_data, participant_id, 
+                          trial, session, music_evoked_affect, spont_memory, contains('exposure'))
+
+mem_data = mem_data %>%
+  left_join(., session_data_to_merge, by = c('participant_id', 'trial', 'session'))
+
+mem_data_long = mem_data %>%
+  pivot_longer(c(total_external, total_internal), names_to = 'detail_type', values_to = 'num_details')
+
+```
+
+
+# Condition mood
+
+```{r m1}
+m1_mood = session_data %>%
+  dplyr::filter(!is.na(music_evoked_affect), music_evoked_affect != 0) %>%
+  dplyr::mutate(condition = dplyr::recode(condition, 'F'='Familiar Music', 'U'='Unfamiliar Music', 'C'='Non-music clips')) %>% 
+  brms::brm(data = ., music_evoked_affect ~ condition + time + 
+              (condition + time  | participant_id), chains = 4, cores = 4, iter = 2000, seed = seed,
+              family = cumulative(link = 'probit'))
+```
+
+
+# Mood ~ Deliberate Recall
+
+```{r m2}
+m2_mood_recall = mem_data_long %>%
+  dplyr::filter(!is.na(music_evoked_affect), music_evoked_affect != 0) %>%
+  brms::brm(data = ., num_details ~ music_evoked_affect*detail_type + 
+              (music_evoked_affect*detail_type | participant_id), chains = 4, cores = 4, iter = 2000, seed = seed, family = 'student', prior = prior(gamma(4, 1), class = nu))
+```
+
+
+# Associations between deliberate and spontaneous recall
+
+```{r m3}
+m3_spontaneous_recall = mem_data_long %>%
+  dplyr::filter(spont_memory != 0) %>%
+  brms::brm(data = ., num_details ~ spont_memory*detail_type + 
+              (spont_memory*detail_type | participant_id), chains = 4, cores = 4, iter = 2000, seed = seed, family = 'student', prior = prior(gamma(4, 1), class = nu))
+```
+
+# Associations betwen time-windowe exposure and deliberate recall
+
+```{r m4_m5}
+mem_data_exposure = mem_data %>%
+  dplyr::mutate(., music_exposure_matching = case_when(time == 'child' ~ childhood_exposure,
+                                    time == 'adol' ~ adolescence_exposure,
+                                    time == 'adult' ~ young_adult_exposure),
+                music_exposure_nonmatching = case_when(
+                  time == 'child' ~ (adolescence_exposure + young_adult_exposure + adult_present_exposure)/3,
+                  time == 'adol' ~ (childhood_exposure + young_adult_exposure + adult_present_exposure)/3,
+                  time == 'adult' ~ (childhood_exposure + adolescence_exposure + adult_present_exposure)/3)) %>%
+  pivot_longer(c(total_external, total_internal), names_to = 'detail_type', values_to = 'num_details')
+
+
+m4_timed_exposure_recall = mem_data_exposure %>%
+  dplyr::filter(condition == 'F') %>%
+  brms::brm(data = ., num_details ~ music_exposure_matching*detail_type + music_exposure_nonmatching*detail_type +
+              (music_exposure_matching*detail_type + music_exposure_nonmatching*detail_type | participant_id),
+            family = 'student', prior = prior(gamma(4, 1), class = nu), chains = 4, cores = 4, iter = 3000, seed = seed)
+
+m5_alt_timed_exposure_recall = mem_data_exposure %>%
+  dplyr::filter(condition == 'F') %>%
+  brms::brm(data = ., num_details ~ music_exposure_matching*detail_type + music_exposure_nonmatching*detail_type +
+              time*detail_type + 
+              (music_exposure_matching*detail_type + music_exposure_nonmatching*detail_type + time*detail_type| participant_id),
+            family = 'student', prior = prior(gamma(4, 1), class = nu), chains = 4, cores = 4, iter = 3000, seed = seed)
+
+```
+
+
+```{r save}
+save(m1_mood, 
+     m2_mood_recall, 
+     m3_spontaneous_recall,
+     m4_timed_exposure_recall, 
+     m5_alt_timed_exposure_recall,
+     file = '../../results/models/secondary_models.rda', compress = 'xz')
+```

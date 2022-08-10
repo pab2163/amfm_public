@@ -1,0 +1,357 @@
+---
+title: "Secondary Analysis Stats"
+author: "Paul Bloom"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(Matrix)
+library(dbplyr)
+library(tidyverse)
+library(ggplot2)
+library(brms)
+library(cowplot)
+library(tidybayes)
+library(emmeans)
+library(DT)
+```
+
+### Load data & models
+
+```{r, warning=FALSE, message=FALSE}
+load('../../results/models/secondary_models.rda')
+session_data = read_csv('../../data/session_data.csv')
+mem_data = read_csv('../../data/autobio_interview_scores.csv') %>%
+  dplyr::filter(is.na(exclude_trial)) 
+```
+
+
+# Effects of music manipulation on clip-evoked affect (Fig. 7A)
+
+Differences in participant-reported affect evoked by clips in each condition. The table below shows posterior medians and 95% HDI, on the probit scale.  
+
+```{r, warning=FALSE, message=FALSE}
+emmeans::emmeans(m1_mood, specs = 'condition') %>%
+  pairs() %>%
+  as.data.frame() %>%
+  DT::datatable()
+```
+
+
+# Associations between clip-evoked affect and prompted memory recall (Fig. 7B-C)
+
+Similar to primary analysis 2 with familiarity (see `1a_primary_analysis/1c_primary_stats.Rmd`), use emmeans::emtrends() and separate linear regressions to calculate marginal associations between affect and prompted memory recall of internal & external details. 
+
+```{r}
+mood_deliberate_trends = m2_mood_recall %>% 
+  emmeans::emtrends(~detail_type, var = 'music_evoked_affect', epred = TRUE) %>%
+  gather_emmeans_draws()
+
+mood_deliberate_trends = mood_deliberate_trends %>%
+  pivot_wider(id_cols = .draw, names_from = detail_type, values_from = .value) %>%
+  mutate(all_detail = (total_external + total_internal)/2) %>%
+  pivot_longer(-.draw) %>%
+  dplyr::mutate(name = dplyr::recode(name,  'all_detail'='All Details\n(Internal + External)',
+                                     'total_internal' = 'Internal Details',
+                                     'total_external' = 'External Details'))
+```
+
+## Get draws, manually calculate slopes for % of details that are internal
+
+Set up a grid of all possible values of music-evoked affect (1-7) to make posterior predictions for. As before, use `tidybayes::add_fitted_draws()` to extract the expected value of the posterior predictive distribution for each combination specified in `pred_grid_mood_recall`, not including uncertainty from random effects. 
+
+
+```{r, warning=FALSE}
+pred_grid_mood_recall = expand.grid(music_evoked_affect = 1:7,
+                        time = c('child', 'adol', 'adult'),
+                        detail_type = c('total_internal', 'total_external'))
+
+draws_mood_recall = m2_mood_recall %>% 
+  tidybayes::add_fitted_draws(newdata = pred_grid_mood_recall, re_formula = NA) %>%
+  group_by(music_evoked_affect, detail_type, .draw) %>%
+  summarise(mean_details = mean(.value)) 
+```
+
+As with primary analyses, this step is a little more involved, since `emtrends()` will not directly compute the marginal slopes for this transformed outcome. Here, the steps are:
+
+* For each posterior draw, calculate `internal_proportion` (the estimated proportion of details that are internal) for each possible value of `music_evoked_affect`
+* Group the data by draw, then for each draw run a linear regression to calculate the *slope* of internal proportion with regards to `music_evoked_affect` (basically what `emtrends()` is doing under the hood)
+* Multiply these slopes from linear regression models by 100 to get the posterior distribution for the estimated relationship between music-evoked affect and the *percentage* of details internal (easier to visualize on the same scale as other posterior distributions)
+
+```{r}
+draws_mood_recall_wide = draws_mood_recall %>%
+  pivot_wider(names_from = detail_type, values_from = mean_details, id_cols = c('.draw', 'music_evoked_affect')) %>%
+  mutate(internal_proportion = total_internal / (total_internal + total_external)) %>%
+  group_by(.draw) %>%
+  nest() %>%
+  mutate(slope = purrr::map(data, ~lm(data = ., internal_proportion ~ music_evoked_affect)$coefficients[2]*100)) %>%
+  unnest(slope) %>%
+  dplyr::select(-data, .draw, value=slope) %>%
+  dplyr::mutate(name = '% of Details Internal')
+
+```
+
+Put posterior calculations together and calculate HDIs for all associations between music-evoked affect and prompted recall
+
+```{r}
+mood_deliberate_trends = rbind(mood_deliberate_trends, draws_mood_recall_wide)
+
+mood_deliberate_trends %>%
+  group_by(name) %>%
+  summarise(mean = mean(value),
+            interval = bayestestR::hdi(value)) %>%
+  unnest(interval) %>%
+  DT::datatable()
+```
+
+
+# Associations between spontaneous and prompted memory recall (Fig. 8)
+
+First, extract posterior predictions as before, then compute all contrasts for each posterior draw. 
+
+```{r, warning=FALSE, message=FALSE}
+pred_grid_spontaneous = expand.grid(spont_memory = c('y', 'n'),
+                        detail_type = c('total_internal', 'total_external'))
+
+draws_spontaneous = m3_spontaneous_recall %>% 
+  tidybayes::add_fitted_draws(newdata = pred_grid_spontaneous, re_formula = NA) 
+
+draws_spontaneous_wide = draws_spontaneous %>%
+  pivot_wider(names_from = detail_type, values_from = .value, id_cols = c('spont_memory', '.draw')) %>%
+  mutate(internal_prop = total_internal / (total_internal + total_external),
+         total = total_internal + total_external) %>%
+  group_by(spont_memory, .draw) %>%
+  summarise(mean_internal = mean(total_internal), 
+            mean_external = mean(total_external),
+            mean_internal_prop = mean(internal_prop),
+            mean_total = mean(total)) 
+
+draws_wide_comparison_spontaneous= draws_spontaneous_wide %>%
+  pivot_longer(contains('mean')) %>%
+  pivot_wider(names_from = spont_memory, values_from = value, id_cols = c(.draw, name)) %>%
+  dplyr::mutate(diff = `y`-`n`,
+                diff = ifelse(name == 'mean_internal_prop', 100*diff, diff),
+                name = dplyr::recode(name,
+                                     'mean_total'='All Details\n(Internal + External)',
+                                     'mean_internal_prop' = '% of Details Internal',
+                                     'mean_internal' = 'Internal Details',
+                                     'mean_external' = 'External Details'))
+
+```
+
+Summarise posterior contrasts with medians + 95% HDIs. 
+
+```{r}
+draws_wide_comparison_spontaneous %>%
+  group_by(name) %>%
+  summarise(mean = mean(diff),
+            interval = bayestestR::hdi(diff)) %>%
+  unnest(interval) %>%
+  DT::datatable()
+```
+
+
+# Associations between music exposure during the time period of release and prompted recall
+
+Here, 2 versions of the analysis are reported:
+* The preregistered version, which does not contain covariates for time (and arguably is then confounded by the time period of the prompted memory)
+* An alternate model that does covary for time (not preregistered)
+
+## Preregistered version (no covariates)
+
+
+```{r, warning=FALSE, message=FALSE}
+pred_grid_matching_recall = expand.grid(music_exposure_matching = 1:5,
+                                        music_exposure_nonmatching = 1:5,
+                        detail_type = c('total_internal', 'total_external'))
+
+timed_exposure_trends_matching = m4_timed_exposure_recall %>% emmeans::emtrends(~detail_type, var = 'music_exposure_matching', epred = TRUE) %>%
+  gather_emmeans_draws() %>%
+  mutate(type = 'matching') %>%
+  pivot_wider(id_cols = .draw, names_from = detail_type, values_from = .value) %>%
+  mutate(all_detail = (total_external + total_internal)/2) %>%
+  pivot_longer(-.draw) %>%
+  dplyr::mutate(name = dplyr::recode(name,  'all_detail'='All Details\n(Internal + External)',
+                                     'total_internal' = 'Internal Details',
+                                     'total_external' = 'External Details'))
+
+
+draws_matching = m4_timed_exposure_recall %>% 
+  tidybayes::add_fitted_draws(newdata = pred_grid_matching_recall, re_formula = NA) %>%
+  group_by(music_exposure_matching, detail_type, .draw) %>%
+  summarise(.value = mean(.value)) 
+
+draws_matching_wide = draws_matching %>%
+  pivot_wider(names_from = detail_type, values_from = .value, id_cols = c('.draw', 'music_exposure_matching')) %>%
+  mutate(internal_proportion = total_internal / (total_internal + total_external)) %>%
+  group_by(.draw) %>%
+  nest() %>%
+  mutate(slope = purrr::map(data, 
+                            ~lm(data = ., internal_proportion ~ music_exposure_matching)$coefficients[2]*100)) %>%
+  unnest(slope) %>%
+  dplyr::select(-data, .draw, value=slope) %>%
+  dplyr::mutate(name = '% of Details Internal') 
+
+timed_exposure_trends_matching = rbind(timed_exposure_trends_matching, draws_matching_wide) %>%
+  mutate(match = 'Time window of song release')
+
+timed_exposure_trends_nonmatching = m4_timed_exposure_recall %>% emmeans::emtrends(~detail_type, var = 'music_exposure_nonmatching', epred = TRUE) %>%
+  gather_emmeans_draws() %>%
+  mutate(type = 'matching') %>%
+  pivot_wider(id_cols = .draw, names_from = detail_type, values_from = .value) %>%
+  mutate(all_detail = (total_external + total_internal)/2) %>%
+  pivot_longer(-.draw) %>%
+  dplyr::mutate(name = dplyr::recode(name,  'all_detail'='All Details\n(Internal + External)',
+                                     'total_internal' = 'Internal Details',
+                                     'total_external' = 'External Details'))
+
+draws_nonmatching = m4_timed_exposure_recall %>% 
+  tidybayes::add_fitted_draws(newdata = pred_grid_matching_recall, re_formula = NA) %>%
+  group_by(music_exposure_nonmatching, detail_type, .draw) %>%
+  summarise(.value = mean(.value)) 
+
+draws_nonmatching_wide = draws_nonmatching %>%
+  pivot_wider(names_from = detail_type, values_from = .value, id_cols = c('.draw', 'music_exposure_nonmatching')) %>%
+  mutate(internal_proportion = total_internal / (total_internal + total_external)) %>%
+  group_by(.draw) %>%
+  nest() %>%
+  mutate(slope = purrr::map(data, ~lm(data = ., internal_proportion ~ music_exposure_nonmatching)$coefficients[2]*100)) %>%
+  unnest(slope) %>%
+  dplyr::select(-data, .draw, value=slope) %>%
+  dplyr::mutate(name = '% of Details Internal') 
+
+timed_exposure_trends_nonmatching = rbind(timed_exposure_trends_nonmatching, draws_nonmatching_wide) %>%
+  mutate(match = 'All other time windows')
+
+timed_exposure = rbind(timed_exposure_trends_matching, timed_exposure_trends_nonmatching)
+timed_exposure$match = factor(timed_exposure$match, levels = c('Time window of song release','All other time windows'))
+
+```
+
+# Timed Exposure Modified Analysis (covarying for time)
+
+```{r}
+pred_grid_alt_matching_recall = expand.grid(music_exposure_matching = 1:5,
+                                        music_exposure_nonmatching = 1:5,
+                                        time = c('child', 'adol', 'adult'),
+                        detail_type = c('total_internal', 'total_external'))
+
+timed_exposure_trends_alt_matching = m5_alt_timed_exposure_recall %>% emmeans::emtrends(~detail_type, var = 'music_exposure_matching', epred = TRUE) %>%
+  gather_emmeans_draws() %>%
+  mutate(type = 'alt_matching') %>%
+  pivot_wider(id_cols = .draw, names_from = detail_type, values_from = .value) %>%
+  mutate(all_detail = (total_external + total_internal)/2) %>%
+  pivot_longer(-.draw) %>%
+  dplyr::mutate(name = dplyr::recode(name,  'all_detail'='All Details\n(Internal + External)',
+                                     'total_internal' = 'Internal Details',
+                                     'total_external' = 'External Details'))
+
+draws_alt_matching = m5_alt_timed_exposure_recall %>% 
+  tidybayes::add_fitted_draws(newdata = pred_grid_alt_matching_recall, re_formula = NA) %>%
+  group_by(music_exposure_matching, detail_type, .draw) %>%
+  summarise(.value = mean(.value)) 
+
+draws_alt_matching_wide = draws_alt_matching %>%
+  pivot_wider(names_from = detail_type, values_from = .value, id_cols = c('.draw', 'music_exposure_matching')) %>%
+  mutate(internal_proportion = total_internal / (total_internal + total_external)) %>%
+  group_by(.draw) %>%
+  nest() %>%
+  mutate(slope = purrr::map(data, ~lm(data = ., internal_proportion ~ music_exposure_matching)$coefficients[2]*100)) %>%
+  unnest(slope) %>%
+  dplyr::select(-data, .draw, value=slope) %>%
+  dplyr::mutate(name = '% of Details Internal') 
+
+timed_exposure_trends_alt_matching = rbind(timed_exposure_trends_alt_matching, draws_alt_matching_wide) %>%
+  mutate(match = 'Time window of song release')
+
+
+timed_exposure_trends_alt_nonmatching = m5_alt_timed_exposure_recall %>% emmeans::emtrends(~detail_type, var = 'music_exposure_nonmatching', epred = TRUE) %>%
+  gather_emmeans_draws() %>%
+  mutate(type = 'alt_matching') %>%
+  pivot_wider(id_cols = .draw, names_from = detail_type, values_from = .value) %>%
+  mutate(all_detail = (total_external + total_internal)/2) %>%
+  pivot_longer(-.draw) %>%
+  dplyr::mutate(name = dplyr::recode(name,  'all_detail'='All Details\n(Internal + External)',
+                                     'total_internal' = 'Internal Details',
+                                     'total_external' = 'External Details'))
+
+draws_alt_nonmatching = m5_alt_timed_exposure_recall %>% 
+  tidybayes::add_fitted_draws(newdata = pred_grid_alt_matching_recall, re_formula = NA) %>%
+  group_by(music_exposure_nonmatching, detail_type, .draw) %>%
+  summarise(.value = mean(.value)) 
+
+draws_alt_nonmatching_wide = draws_alt_nonmatching %>%
+  pivot_wider(names_from = detail_type, values_from = .value, id_cols = c('.draw', 'music_exposure_nonmatching')) %>%
+  mutate(internal_proportion = total_internal / (total_internal + total_external)) %>%
+  group_by(.draw) %>%
+  nest() %>%
+  mutate(slope = purrr::map(data, ~lm(data = ., internal_proportion ~ music_exposure_nonmatching)$coefficients[2]*100)) %>%
+  unnest(slope) %>%
+  dplyr::select(-data, .draw, value=slope) %>%
+  dplyr::mutate(name = '% of Details Internal') 
+
+timed_exposure_trends_alt_nonmatching = rbind(timed_exposure_trends_alt_nonmatching, draws_alt_nonmatching_wide) %>%
+  mutate(match = 'All other time windows')
+
+
+timed_exposure_alt = rbind(timed_exposure_trends_alt_matching, timed_exposure_trends_alt_nonmatching)
+timed_exposure_alt$match = factor(timed_exposure_alt$match, levels = c('Time window of song release','All other time windows'))
+
+```
+
+# Timed Exposure: contrast betas & HDIs
+
+## No time period covariates
+
+```{r}
+timed_exposure %>%
+  group_by(name, match) %>%
+  summarise(mean = mean(value),
+            hdi = bayestestR::hdi(value, ci = 0.95)) %>%
+  unnest(hdi) %>%
+  DT::datatable()
+```
+
+## Covarying for time period
+
+```{r}
+timed_exposure_alt %>%
+  group_by(name, match) %>%
+  summarise(mean = mean(value),
+    hdi = bayestestR::hdi(value)) %>%
+  unnest(hdi) %>%
+  DT::datatable()
+```
+
+# HDIs corrected for multiple comparisons
+
+Not covarying for time period
+
+```{r}
+corrected_interval_calcs = timed_exposure %>%
+  dplyr::filter(name %in% c('External Details', 'Internal Details')) %>%
+  group_by(name, match) %>%
+  summarise(proportion_consistent = case_when(
+    median(value) >= 0 ~ sum(value >= 0)/n(),
+    median(value) < 0 ~ sum(value < 0)/n())) %>%
+  ungroup() %>%
+  mutate(rank = rank(proportion_consistent),
+         width = 1 - (0.05/rank),
+         upr_corrected = 1 - (0.05/2)/rank,
+         lwr_corrected = 1 - upr_corrected)
+
+
+corrected_intervals = timed_exposure %>%
+  dplyr::filter(name %in% c('External Details', 'Internal Details')) %>%
+  left_join(corrected_interval_calcs, by = c('name', 'match')) %>%
+  group_by(name, match) %>%
+  summarise(mean = mean(value),
+            rank = rank[1],
+            hdi = bayestestR::hdi(value, ci = width[1])) %>%
+  unnest(hdi)
+
+corrected_intervals %>%
+  DT::datatable()
+```
+

@@ -1,0 +1,68 @@
+---
+title: "Primary Analysis Models"
+author: "Paul Bloom"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(brms)
+library(readr)
+library(tidyr)
+
+# Set seed for reproducible run
+seed = 11291993
+
+# for sufficient tail effective sample size
+n_iter = 5000
+```
+
+# Prep data
+
+* Put data in long format
+* Recode internal details as `-0.5` and external details as `0.5`
+
+```{r}
+mem_data = readr::read_csv('../../data/autobio_interview_scores.csv') %>%
+  dplyr::filter(is.na(exclude_trial), is.na(exclusion_reason))
+
+session_data = readr::read_csv('../../data/session_data.csv') %>%
+  dplyr::select(., participant_id, session, trial, familiarity)
+
+mem_data = left_join(mem_data, session_data, by = c('participant_id', 'session', 'trial'))
+
+mem_data_long = mem_data %>%
+  tidyr::pivot_longer(c(total_external, total_internal), names_to = 'detail_type', values_to = 'num_details') %>%
+  dplyr::mutate(detail_type = dplyr::recode(detail_type, 'total_internal'=-0.5, 'total_external'=0.5))
+```
+
+# Primary model for effects of condition on prompted recall (Primary analyses 1 & 3)
+
+```{r}
+m1_condition = brms::brm(data = mem_data_long, num_details ~ condition*detail_type + time*detail_type + 
+                           (condition*detail_type + time*detail_type | participant_id), chains = 4, cores = 4,
+                         family = 'student', prior = prior(gamma(4, 1), class = nu), 
+                         seed = seed, iter = n_iter)
+
+```
+
+# Primary model for associations between familiarity & prompted recall (Primary analysis 2)
+
+```{r}
+m2_familiarity = data = mem_data_long %>%
+  dplyr::filter(condition != 'control') %>%
+  brms::brm(data = ., num_details ~ familiarity*detail_type + time*detail_type + 
+              (familiarity*detail_type + time*detail_type | participant_id), chains = 4, cores = 4,
+            family = 'student', prior = prior(gamma(4, 1), class = nu), iter = n_iter, seed = seed)
+
+```
+
+# Save models for creating visualizatinos & extracting stats
+
+```{r}
+save(m1_condition, m2_familiarity, file = '../../results/models/primary_analysis_models.rda', compress = 'xz')
+```

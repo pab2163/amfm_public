@@ -1,0 +1,213 @@
+---
+title: "Supplemental Figures 5, 6 & 8"
+author: "Paul Bloom"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(Matrix)
+library(dbplyr)
+library(tidyverse)
+library(ggplot2)
+library(brms)
+library(cowplot)
+library(tidybayes)
+library(emmeans)
+library(bayestestR)
+theme_set(theme_bw())
+```
+
+# Sfig 8
+
+```{r}
+mem_data = read_csv('../../data/autobio_interview_scores.csv')
+
+detail_sds = mem_data %>%
+  dplyr::filter(!is.na(total_internal), !is.na(total_external)) %>%
+  group_by(participant_id, time, condition) %>%
+  summarise(sd_internal = sd(total_internal),
+            sd_external = sd(total_external)) %>%
+  group_by(participant_id) %>%
+  summarise(sd_internal = mean(sd_internal),
+            sd_external = mean(sd_external)) %>%
+  mutate(data = 'Full Sample') %>%
+  dplyr::filter(!is.na(sd_internal))
+
+pilot_sds = read_csv('../../data/power_sim_params.csv') %>%
+  dplyr::select(sd_internal = internalSD,
+                sd_external = externalSD) %>%
+  mutate(data = 'Pilot Sample') 
+
+
+detail_sds = plyr::rbind.fill(detail_sds, pilot_sds) %>%
+  pivot_longer(contains('sd')) %>%
+  dplyr::mutate(name = dplyr::recode(name, 
+                                     'sd_internal'='Internal Details',
+                                     'sd_external'='External Details'))
+
+
+detail_sds_pilot_full = ggplot(detail_sds, aes(x = data, y = value, color = name)) +
+  geom_jitter(width = 0.05, size = 1, alpha = 0.5) +
+  geom_boxplot(position = position_nudge(0.2), width = 0.2, outlier.shape = NA) + 
+  facet_grid(~name) +
+  labs(y = 'Within-participant standard deviations in recall', x = 'Participants') +
+  theme(legend.position = 'none')
+
+```
+
+
+```{r}
+ggsave(detail_sds_pilot_full, file = '../../results/supplemental_figs/sfig8_detail_sds_pilot_full.png',
+       width = 6, height = 4)
+```
+
+
+
+# Sfigs 5 & 6
+
+## Load model from primary analysis
+```{r load_data}
+mem_data = read_csv('../../data/autobio_interview_scores.csv') %>%
+  dplyr::filter(is.na(exclude_trial)) 
+load('../../results/models/primary_analysis_models.rda')
+```
+
+
+# Familiar > Unfamiliar (Sfig. 5)
+
+```{r}
+pred_grid = expand.grid(condition = c('U','F', 'C'), 
+                        time = c('child', 'adol', 'adult'),
+                        detail_type = c(-0.5, 0.5),
+                        participant_id = unique(mem_data$participant_id)) 
+
+
+draws = m1_condition %>% tidybayes::add_fitted_draws(newdata = pred_grid) %>%
+  dplyr::mutate(detail_type = dplyr::recode(detail_type, '-0.5'='total_internal', '0.5'='total_external'))
+```
+
+```{r}
+draws_wide = draws %>%
+  pivot_wider(names_from = detail_type, values_from = .value, id_cols = c('condition', 'time', '.draw', 'participant_id')) %>%
+  mutate(internal_prop = total_internal / (total_internal + total_external),
+         total = total_internal + total_external) %>%
+  group_by(condition, .draw, participant_id) %>%
+  summarise(mean_internal = mean(total_internal), 
+            mean_external = mean(total_external),
+            mean_internal_prop = mean(internal_prop),
+            mean_total = mean(total)) %>%
+  mutate(condition = dplyr::recode(condition, 'U'='Unfamiliar Music', 'F'='Familiar Music', 'C'='Non-music Clips'))
+
+draws_wide_comparison = draws_wide %>%
+  pivot_longer(contains('mean')) %>%
+  pivot_wider(names_from = condition, values_from = value, id_cols = c(.draw, name, participant_id)) %>%
+  dplyr::mutate(diff = `Familiar Music`-`Unfamiliar Music`,
+                diff = ifelse(name == 'mean_internal_prop', 100*diff, diff),
+                name = dplyr::recode(name,
+                                     'mean_total'='All Details\n(Internal + External)',
+                                     'mean_internal_prop' = '% of Details Internal',
+                                     'mean_internal' = 'Internal Details',
+                                     'mean_external' = 'External Details')) %>%
+  group_by(participant_id, name) %>%
+  summarise(median = median(diff),
+            lwr = quantile(diff, probs = 0.025),
+            upr = quantile(diff, probs = 0.975)) 
+
+
+
+draws_wide_comparison_ranks = draws_wide_comparison %>%
+  ungroup() %>%
+  dplyr::filter(name == '% of Details Internal') %>%
+  mutate(rank = rank(median)) %>%
+  dplyr::select(participant_id, rank)
+
+
+draws_wide_comparison = dplyr::left_join(draws_wide_comparison, draws_wide_comparison_ranks, by = 'participant_id')
+
+sds = draws_wide_comparison %>%
+  group_by(name) %>%
+  summarise(sd = round(sd(median), 2),
+            max = max(upr))
+
+draws_wide_comparison = dplyr::left_join(draws_wide_comparison, sds, by = 'name')
+
+
+familiar_unfamiliar_heterogeneity = ggplot(draws_wide_comparison, aes(x = rank, y = median)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = lwr, ymax = upr), width = 0, alpha = 0.5) +
+  geom_hline(yintercept = 0, lty = 2, color = 'purple') +
+  facet_grid(rows = vars(name), scales = 'free_y') +
+  #coord_flip() +
+  geom_text(data = sds, aes(x = 15, y = max, label = paste0('Effect SD across participants=', sd))) +
+  labs(x = 'Participants', y = 'Familiar Music > Unfamiliar Music Contrast', title = 'Between-participant heterogeneity in familiar music effects')
+
+
+ggsave(familiar_unfamiliar_heterogeneity, 
+       file = '../../results/supplemental_figs/sfig5_familiar_effect_heterogeneity.png',
+       width = 8, height = 8)
+```
+
+
+# Music > no music (Sfig 6)
+```{r}
+draws_music_no_music = mutate(draws, condition = ifelse(condition == 'C', 'No Music', 'Music')) %>%
+  group_by(condition, time, detail_type, .draw, participant_id) %>%
+  summarise(.value = mean(.value)) %>%
+  ungroup()
+
+draws_wide_music_no_music = draws_music_no_music %>%
+  pivot_wider(names_from = detail_type, values_from = .value, id_cols = c('condition', 'time', '.draw', 'participant_id')) %>%
+  mutate(internal_prop = total_internal / (total_internal + total_external),
+         total = total_internal + total_external) %>%
+  group_by(condition, .draw, participant_id) %>%
+  summarise(mean_internal = mean(total_internal), 
+            mean_external = mean(total_external),
+            mean_internal_prop = mean(internal_prop),
+            mean_total = mean(total))
+
+draws_wide_comparison_music_no_music = draws_wide_music_no_music %>%
+  pivot_longer(contains('mean')) %>%
+  pivot_wider(names_from = condition, values_from = value, id_cols = c(.draw, name, participant_id)) %>%
+  dplyr::mutate(diff = `Music`-`No Music`,
+                diff = ifelse(name == 'mean_internal_prop', 100*diff, diff),
+                name = dplyr::recode(name,
+                                     'mean_total'='All Details\n(Internal + External)',
+                                     'mean_internal_prop' = '% of Details Internal',
+                                     'mean_internal' = 'Internal Details',
+                                     'mean_external' = 'External Details')) %>%
+  group_by(participant_id, name) %>%
+  summarise(median = median(diff),
+            lwr = quantile(diff, probs = 0.025),
+            upr = quantile(diff, probs = 0.975))
+
+
+draws_wide_comparison_ranks_music_no_music = draws_wide_comparison_music_no_music %>%
+  ungroup() %>%
+  dplyr::filter(name == '% of Details Internal') %>%
+  mutate(rank = rank(median)) %>%
+  dplyr::select(participant_id, rank)
+
+
+draws_wide_comparison_music_no_music = dplyr::left_join(draws_wide_comparison_music_no_music, draws_wide_comparison_ranks_music_no_music, by = 'participant_id')
+
+sds_music_no_music = draws_wide_comparison_music_no_music %>%
+  group_by(name) %>%
+  summarise(sd = round(sd(median), 2),
+            max = max(upr))
+
+draws_wide_comparison_music_no_music = dplyr::left_join(draws_wide_comparison_music_no_music, sds_music_no_music, by = 'name')
+
+
+music_no_music_heterogeneity = ggplot(draws_wide_comparison_music_no_music, aes(x = rank, y = median)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = lwr, ymax = upr), width = 0, alpha = 0.5) +
+  geom_hline(yintercept = 0, lty = 2, color = 'purple') +
+  facet_grid(rows = vars(name), scales = 'free_y') +
+  geom_text(data = sds, aes(x = 15, y = max, label = paste0('Effect SD across participants=', sd))) +
+  labs(x = 'Participants', y = 'Music > No-Music Contrast', title = 'Between-participant heterogeneity in music > no music effects')
+
+ggsave(music_no_music_heterogeneity,
+       file = '../../results/supplemental_figs/sfig6_music_no_music_effect_heterogeneity.png',
+       width = 8, height = 8)
+```

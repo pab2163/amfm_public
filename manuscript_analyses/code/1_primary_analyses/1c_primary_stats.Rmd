@@ -1,0 +1,237 @@
+---
+title: "Primary Planned Analysis Statistics"
+author: "Paul Bloom"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load Packages
+
+```{r, warning=FALSE, message=FALSE}
+library(Matrix)
+library(dbplyr)
+library(tidyverse)
+library(ggplot2)
+library(brms)
+library(cowplot)
+library(tidybayes)
+library(emmeans)
+library(bayestestR)
+library(DT)
+theme_set(theme_bw())
+```
+
+### Load in data & models fit in `1a_primary_models.Rmd`
+
+```{r load_data, message=FALSE}
+mem_data = read_csv('../../data/autobio_interview_scores.csv')
+load('../../results/models/primary_analysis_models.rda')
+```
+
+# Primary Analysis #1: Effects of familiar vs. unfamiliar music exposure on prompted memory recall (Fig. 5A-B)
+
+* Since we modeled internal details & external details within the same model, we can use samples from the posterior predictive distribution to compute contrasts effects on *all details (sum of internal + external)* and *the percentage of details that were internal*.
+* In general, all mathematical operations are computed separately for *each sample ('draw')* from the posterior predictive distributions, then summaries (medians + HDIs) are calculated at the end
+
+
+### Draw posterior predictive distributions 
+
+Make a "grid" of all combinations of condition, time, and detail_type to extract predictions for
+
+```{r, warning=FALSE}
+pred_grid = expand.grid(condition = c('U','F', 'C'), 
+                        time = c('child', 'adol', 'adult'),
+                        detail_type = c(-0.5, 0.5)) 
+
+```
+
+Using tidybayes, extract draws for the expected value (see [brms documentation](https://rdrr.io/cran/brms/man/posterior_epred.brmsfit.html)) of the posterior predictive distribution for each combination specified in `pred_grid`. The `re_formula=NA` argument specifies that uncertainty from random effects is not taken into account in extracting posterior predictions, so predictions are at the group (not individual participant) level.
+
+```{r, warning=FALSE}
+draws = m1_condition %>% 
+  tidybayes::add_fitted_draws(newdata = pred_grid, re_formula = NA) %>%
+  dplyr::mutate(detail_type = dplyr::recode(detail_type, '-0.5'='total_internal', '0.5'='total_external'))
+```
+
+### From posterior predictive distributions, calculate average marginal means 
+
+* Calculate  marginal means of posterior predictions for the average internal details, external details, proportion of internal details and total details (internal + internal)
+* Marginal means are averaged across all time windows (child, adolescent, adult) but calculated *separately for each respective posterior sample (draw)* 
+
+
+```{r, message=FALSE}
+draws_wide = draws %>%
+  pivot_wider(names_from = detail_type, values_from = .value, id_cols = c('condition', 'time', '.draw')) %>%
+  mutate(internal_prop = total_internal / (total_internal + total_external),
+         total = total_internal + total_external) %>%
+  group_by(condition, .draw) %>%
+  summarise(mean_internal = mean(total_internal), 
+            mean_external = mean(total_external),
+            mean_internal_prop = mean(internal_prop),
+            mean_total = mean(total)) %>%
+  mutate(condition = dplyr::recode(condition, 'U'='Unfamiliar Music', 'F'='Familiar Music', 'C'='Non-music Clips'))
+```
+
+### Create contrasts between familiar > unfamiliar music conditions through computing the average marginal effect (`diff`)
+
+* Note: the estimates are multiplied by 100 for the proportion of internal details for ease of interpretation/visualization -- now they are the estimated effects on the *percentage* of internal details
+* 4 measures here for `Internal Details`, `External Details`, `All Details (Internal + External)`, and `% of Details Internal`
+
+```{r}
+draws_wide_comparison_familiar_unfamiliar = draws_wide %>%
+  pivot_longer(contains('mean')) %>%
+  pivot_wider(names_from = condition, values_from = value, id_cols = c(.draw, name)) %>%
+  dplyr::mutate(diff = `Familiar Music`-`Unfamiliar Music`,
+                diff = ifelse(name == 'mean_internal_prop', 100*diff, diff),
+                name = dplyr::recode(name,
+                                     'mean_total'='All Details\n(Internal + External)',
+                                     'mean_internal_prop' = '% of Details Internal',
+                                     'mean_internal' = 'Internal Details',
+                                     'mean_external' = 'External Details'))
+```
+
+### Summarise the posterior median and 95% HDI for the average marginal effect of familiar > unfamiliar music on each outcome (Primary Analysis #1)
+
+```{r}
+draws_wide_comparison_familiar_unfamiliar %>%
+  group_by(name) %>%
+  summarise(mean = mean(diff), interval = bayestestR::hdi(diff)) %>%
+  unnest(interval) %>%
+  DT::datatable()
+```
+
+
+# Primary Analysis #2: Associations between ratings of song familiarity and prompted memory recall (Fig. 6)
+
+
+### Use `emmeans::emtrends()` to get marginal associations of familiarity with # of internal details and external details recalled
+
+`gather_emmeans_draws()` creates a dataframe with all posterior samples for the marginal associations calculated by `emtrends()`
+
+```{r}
+familiarity_trends = m2_familiarity %>% 
+  emmeans::emtrends(~detail_type, var = 'familiarity', epred = TRUE) %>%
+  gather_emmeans_draws() %>%
+  dplyr::mutate(detail_type = dplyr::recode(detail_type, '-0.5'='total_internal', '0.5'='total_external'))
+```
+
+Wrangle emtrends data
+
+```{r}
+familiarity_trends = familiarity_trends %>%
+  pivot_wider(id_cols = .draw, names_from = detail_type, values_from = .value) %>%
+  mutate(all_detail = total_external + total_internal) %>%
+  pivot_longer(-.draw) %>%
+  dplyr::mutate(name = dplyr::recode(name,  'all_detail'='All Details\n(Internal + External)',
+                                     'total_internal' = 'Internal Details',
+                                     'total_external' = 'External Details'))
+```
+
+### Make a grid including all possible values of familiarity (1:5) to make posterior predictions
+
+```{r}
+pred_grid_familiarity = expand.grid(familiarity = 1:5,
+                        time = c('child', 'adol', 'adult'),
+                        detail_type = c(-0.5, 0.5)) 
+
+```
+
+As before, use `tidybayes::add_fitted_draws()` to extract the expected value of the posterior predictive distribution for each combination specified in `pred_grid_familiarity`, not including uncertainty from random effects. 
+
+```{r, warning=FALSE}
+draws_familiarity = m2_familiarity %>% 
+  tidybayes::add_fitted_draws(newdata = pred_grid_familiarity, re_formula = NA) %>%
+  dplyr::mutate(detail_type = dplyr::recode(detail_type, "-0.5"='total_internal', "0.5"='total_external')) %>%
+  group_by(familiarity, detail_type, .draw) %>%
+  summarise(mean_details = mean(.value)) 
+```
+
+### Calculate associations betwen familiarity and the percentage of details internal
+
+This step is a little more involved, since `emtrends()` will not directly compute the marginal slopes for this transformed outcome. Here, the steps are:
+
+* For each posterior draw, calculate `internal_proportion` (the estimated proportion of details that are internal) for each possible value of `familiarity`
+* Group the data by draw, then for each draw run a linear regression to calculate the *slope* of internal proportion with regards to familiarity (basically what `emtrends()` is doing under the hood)
+* Multiply these slopes from linear regression models by 100 to get the posterior distribution for the estimated relationship between familiarity and the *percentage* of details internal (easier to visualize on the same scale as other posterior distributions)
+
+```{r}
+familarity_draws_wide = draws_familiarity %>%
+  pivot_wider(names_from = detail_type, values_from = mean_details, id_cols = c('.draw', 'familiarity')) %>%
+  mutate(internal_proportion = total_internal / (total_internal + total_external)) %>%
+  group_by(.draw) %>%
+  nest() %>%
+  mutate(slope = purrr::map(data, ~lm(data = ., internal_proportion ~ familiarity)$coefficients[2]*100)) %>%
+  unnest(slope) %>%
+  dplyr::select(-data, .draw, value=slope) %>%
+  dplyr::mutate(name = '% of Details Internal') 
+```
+
+### Put posterior calculations together and calculate HDIs for all associations 
+```{r}
+familiarity_trends = rbind(familiarity_trends, familarity_draws_wide)
+
+familiarity_trends %>%
+  group_by(name) %>%
+  summarise(mean = mean(value), interval = bayestestR::hdi(value)) %>%
+  unnest(interval) %>%
+  DT::datatable()
+```
+
+# Primary Analysis #3: Effects of music vs. non-music clips on prompted memory recall (Fig. 5A & C)
+
+First, group posterior predictions from both the familiar music & unfamiliar music conditions together and average them. 
+
+```{r}
+draws_music_no_music = mutate(draws, condition = ifelse(condition == 'C', 'No Music', 'Music')) %>%
+  group_by(condition, time, detail_type, .draw) %>%
+  summarise(.value = mean(.value)) %>%
+  ungroup()
+```
+
+### From posterior predictive distributions, calculate average marginal means 
+
+Average marginal means are created in the same way previously described for Primary Analysis #1
+
+```{r}
+draws_wide_music_no_music = draws_music_no_music %>%
+  pivot_wider(names_from = detail_type, values_from = .value, id_cols = c('condition', 'time', '.draw')) %>%
+  mutate(internal_prop = total_internal / (total_internal + total_external),
+         total = total_internal + total_external) %>%
+  group_by(condition, .draw) %>%
+  summarise(mean_internal = mean(total_internal), 
+            mean_external = mean(total_external),
+            mean_internal_prop = mean(internal_prop),
+            mean_total = mean(total))
+
+```
+
+### Create contrasts between all music > no music conditions through computing the average marginal effect (`diff`)
+
+Same contrasts as above for Familiar Music > Unfamiliar music
+
+
+```{r}
+draws_wide_comparison_music_no_music = draws_wide_music_no_music %>%
+  pivot_longer(contains('mean')) %>%
+  pivot_wider(names_from = condition, values_from = value, id_cols = c(.draw, name)) %>%
+  dplyr::mutate(diff = `Music`-`No Music`,
+                diff = ifelse(name == 'mean_internal_prop', 100*diff, diff),
+                name = dplyr::recode(name,
+                                     'mean_total'='All Details\n(Internal + External)',
+                                     'mean_internal_prop' = '% of Details Internal',
+                                     'mean_internal' = 'Internal Details',
+                                     'mean_external' = 'External Details'))
+```
+
+### Summarise the posterior median and 95% HDI for the average marginal effect of familiar > unfamiliar music on each outcome (Primary Analysis #3)
+
+```{r}
+draws_wide_comparison_music_no_music %>%
+  group_by(name) %>%
+  summarise(mean = mean(diff), interval = bayestestR::hdi(diff)) %>%
+  unnest(interval) %>%
+  DT::datatable()
+```

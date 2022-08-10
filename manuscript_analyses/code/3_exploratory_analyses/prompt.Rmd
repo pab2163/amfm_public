@@ -1,0 +1,106 @@
+---
+title: "Analysis of Effects of Event Prompts on Recall"
+author: "Paul Bloom"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(Matrix)
+library(dbplyr)
+library(tidyverse)
+library(ggplot2)
+library(brms)
+library(cowplot)
+library(tidybayes)
+library(emmeans)
+library(forcats)
+theme_set(theme_bw())
+```
+
+## Prep Data
+
+```{r}
+df = read.csv(file = '../../data/autobio_interview_scores.csv') %>%
+  dplyr::filter(is.na(exclude_trial))
+
+df_event = df %>%
+  group_by(participant_id, time) %>%
+  ungroup() %>% 
+  group_by(event) %>%
+  mutate(n_participants = length(unique(participant_id))) %>%
+  dplyr::filter(n_participants >= 10)
+
+seed = 11291993
+```
+
+## Run Model
+
+```{r}
+prompt_model = df_event %>%
+  pivot_longer(c(total_external, total_internal), names_to = 'detail_type', values_to = 'num_details') %>%
+  brms::brm(data = ., num_details ~ event*detail_type + (detail_type | participant_id), cores = 4, chains = 4,
+            family = 'student', prior = prior(gamma(4, 1), class = nu), iter = 4000, seed = seed)
+
+save(prompt_model, file = '../../results/models/prompt_model.rda')
+```
+
+## Pull Predictions from Model
+
+```{r}
+events = unique(prompt_model$data$event)
+event_grid = expand.grid(event = events, detail_type = c('total_internal', 'total_external'), stringsAsFactors = FALSE)
+event_draws = tidybayes::add_fitted_draws(prompt_model, newdata = event_grid, re_formula = NA) %>%
+  pivot_wider(names_from = 'detail_type', values_from = .value, id_cols = c('.draw', 'event')) %>%
+  mutate(internal_prop = total_internal/(total_internal + total_external),
+         total_details = total_internal + total_external)
+
+time_key = df_event %>%
+  group_by(time, event) %>%
+  count()
+
+event_draws = left_join(event_draws, time_key, by = 'event')
+
+event_draws_summary = event_draws %>%
+  group_by(event, time) %>%
+  median_qi() %>%
+  dplyr::mutate(time = dplyr::recode(time, 'child'=' Childhood (5-9 years)', 
+                              'adol'='Adolescence (14-18 years)', 
+                              'adult'='Young Adulthood (20-25 years)'))
+```
+
+## Plot predicted average recall as a function of the prompt
+
+
+```{r}
+event_plot = ggplot(event_draws_summary, aes(x = forcats::fct_reorder(event, internal_prop), y = internal_prop)) +
+  geom_point() +
+  geom_hline(yintercept = 0.5, lty =2, color = 'purple') +
+  geom_errorbar(aes(ymin = `internal_prop.lower`, ymax = `internal_prop.upper`), width = 0) +
+  coord_flip() +
+  facet_grid(rows = vars(time), scales = 'free_y') +
+  scale_y_continuous(breaks = c(.1, .2, .3, .4, .5, .6, .7, .8, .9)) +
+  labs(x = NULL, y = 'Proportion of details internal') +
+  theme(strip.text = element_text(size = 12), panel.grid.minor.x = element_blank())
+
+event_plot_total = ggplot(event_draws_summary, aes(x = forcats::fct_reorder(event, total_details), y = total_details)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = `total_details.lower`, ymax = `total_details.upper`), width = 0) +
+  coord_flip() +
+  facet_grid(rows = vars(time), scales = 'free_y') +
+  labs(x = NULL, y = 'Total details recalled (internal + external)') +
+  theme(strip.text = element_text(size = 12), panel.grid.minor.x = element_blank())
+
+```
+
+## Save plots
+
+```{r}
+ggsave(event_plot, height = 10, width = 10, 
+       filename = '../../results/fig10_deliberate_recall_by_prompt.png')
+ggsave(event_plot_total, height = 10, width = 10, 
+       filename = '../../results/supplemental_figs/sfig10_event_total_details.png')
+```

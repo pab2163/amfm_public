@@ -1,0 +1,135 @@
+---
+title: "Run Bayesian `brms` models for manipulation checks"
+author: "Paul Bloom"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load packages
+
+```{r, warning=FALSE, message=FALSE}
+library(Matrix)
+library(tidyverse)
+library(brms)
+
+# Set seed for reproducible run
+seed = 11291993
+```
+
+For all models, `seed` and `iter` are set so that re-running will yield the same results.
+
+
+# Load Data
+
+```{r, load_data, message=FALSE, warning=FALSE}
+# data with session info
+session_data= read_csv('../../data/session_data.csv') 
+
+# scored autobio recall data
+recall_data = read_csv('../../data/autobio_interview_scores.csv')
+```
+
+# 1. Familiarity Manipulation Check
+
+* Only for clips in the Familiar (`F`) and Unfamiliar (`U`) music conditions
+* Cumulative ordinal multilevel model with a probit link function (see Bürkner & Vuorre, 2019)
+* Package default weakly-informative priors
+
+```{r, m1, results='hide', warning=FALSE}
+m1_familiarity = session_data  %>%
+  dplyr::filter(condition %in% c('F', 'U')) %>%
+  brms::brm(data = ., familiarity ~ condition + (condition | participant_id), family = cumulative('probit'), cores = 4, 
+            iter = 2000, seed = seed)
+```
+
+# 2. Music exposure timing manipulation check
+
+* First, make a new `matching` variable that indicates whether reported music exposure in the time period of music release is highest (or tied for highest)
+* Then model with multilevel logistic regression
+* Package default weakly-informative priors
+
+```{r, m2, results='hide', warning=FALSE}
+session_data_time_match = session_data %>%
+  dplyr::filter(condition %in% c('F')) %>%
+  mutate(.,
+         matching = case_when(
+                    time == 'child' &
+                      childhood_exposure >= adolescence_exposure &
+                      childhood_exposure >= young_adult_exposure &
+                      childhood_exposure >= adult_present_exposure  ~ 1,
+                    time == 'child' &
+                      (childhood_exposure < adolescence_exposure |
+                      childhood_exposure < young_adult_exposure |
+                      childhood_exposure < adult_present_exposure)  ~ 0,
+                    time == 'adol' &
+                      adolescence_exposure >= childhood_exposure &
+                      adolescence_exposure >= young_adult_exposure &
+                      adolescence_exposure >= adult_present_exposure  ~ 1,
+                    time == 'adol' &
+                      (adolescence_exposure < childhood_exposure |
+                      adolescence_exposure < young_adult_exposure |
+                      adolescence_exposure < adult_present_exposure)  ~ 0,
+                    time == 'adult' &
+                      young_adult_exposure >= childhood_exposure &
+                      young_adult_exposure >= adolescence_exposure &
+                      young_adult_exposure >= adult_present_exposure  ~ 1,
+                    time == 'adult' &
+                      (young_adult_exposure < childhood_exposure |
+                      young_adult_exposure < adolescence_exposure |
+                      young_adult_exposure < adult_present_exposure)  ~ 0
+                  ))
+
+
+m2_matching = brms::brm(data = session_data_time_match,
+                        matching ~ time + (time | participant_id),
+                        family = bernoulli(link = 'logit'), cores = 4, 
+                        iter = 2000, seed = seed)
+```
+
+# 3. Spontaneous Recall
+
+* First remove trials with missing data (0 indicates a skipped trial)
+* Then model with multilevel logistic regression
+* Package default weakly-informative priors
+
+```{r, m3}
+m3_spontaneous = session_data %>%
+  dplyr::filter(!is.na(spont_memory), spont_memory !=0) %>%
+  mutate(spont_memory = dplyr::recode(spont_memory, 'y'=1, 'n'=0)) %>%
+  brms::brm(data = ., spont_memory ~ condition + (condition | participant_id), 
+            family = bernoulli(link = 'logit'), cores = 4, 
+            iter = 2000, seed = seed)
+```
+
+
+# 4. Coincidence betwen spontaneous and prompted memories
+
+* First remove trials with missing data (0 indicates a skipped trial)
+* Make new `coincidence_binary` variable based on whether the `mem_coincidence` variable is a 4 (out of 5) or higher. `coincidence_binary` is also set to 0 if there was not a spontaneous memory on a given trial (i.e. no coincidence)
+* Then model with multilevel logistic regression
+* Package default weakly-informative priors
+
+```{r, m4s}
+session_data_spont_all = session_data %>%
+  dplyr::filter(!is.na(spont_memory), spont_memory !=0) %>%
+  mutate(spont_memory = dplyr::recode(spont_memory, 'y'=1, 'n'=0)) %>%
+  dplyr::mutate(coincidence_binary = ifelse(mem_coincidence >= 4, 1, 0),
+                coincidence_binary = ifelse(spont_memory == 0, 0, coincidence_binary))
+
+
+m4_coincidence = brms::brm(data = session_data_spont_all, 
+                           coincidence_binary ~ condition + (condition | participant_id), 
+                           family = bernoulli(link = 'logit'), cores = 4, 
+                           iter = 2000, seed = seed)
+```
+
+# Save all models to the `/results` folder in `.rda` format
+
+```{r, save_data}
+save(m1_familiarity,  m2_matching, m3_spontaneous, m4_coincidence, 
+     session_data, session_data_spont_all,session_data_time_match,
+     file = '../../results/models/manipulation_check_models.rda')
+```

@@ -1,0 +1,252 @@
+---
+title: "primary_analyses"
+author: "Paul Bloom"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(Matrix)
+library(dbplyr)
+library(tidyverse)
+library(ggplot2)
+library(brms)
+library(cowplot)
+library(tidybayes)
+library(emmeans)
+```
+
+# Load data
+
+```{r}
+load('../../results/models/secondary_models.rda')
+session_data = read_csv('../../data/session_data.csv')
+mem_data = read_csv('../../data/autobio_interview_scores.csv') %>%
+  dplyr::filter(is.na(exclude_trial)) 
+```
+
+```{r merge_data}
+session_data_to_merge = dplyr::select(session_data, participant_id, 
+                          trial, session, music_evoked_affect, spont_memory, contains('exposure'))
+
+mem_data = mem_data %>%
+  left_join(., session_data_to_merge, by = c('participant_id', 'trial', 'session'))
+
+mem_data_long = mem_data %>%
+  pivot_longer(c(total_external, total_internal), names_to = 'detail_type', values_to = 'num_details')
+
+```
+
+# Figure 7
+
+## 7A
+
+```{r}
+mood_fx = brms::conditional_effects(m1_mood)
+mood_prediction_plot = plot(mood_fx,cat_args = list(size = 2), errorbar_args = list(width = 0.1))[[1]] + theme_bw()
+```
+
+```{r}
+affect_summary = session_data %>%
+  group_by(condition, participant_id) %>%
+  summarise(mean_evoked_affect = mean(music_evoked_affect)) %>%
+  dplyr::mutate(condition = dplyr::recode(condition, 'F'='Familiar Music', 'U'='Unfamiliar Music', 'C'='Non-music clips')) 
+
+mood_condition_plot = mood_prediction_plot + 
+  geom_line(data = affect_summary, aes(x = condition, y = mean_evoked_affect, 
+    group = participant_id, ymin = 1, ymax = 1), alpha = 0.1) +
+  scale_x_discrete(limits = c('Familiar Music', 'Unfamiliar Music', 'Non-music clips')) +
+  labs(x = 'Condition', y = 'Sound clip-evoked affect', title = '') +
+  geom_hline(yintercept = 4, lty = 2, color = 'purple') +
+  annotate('text', x = 0.72, y = 1.2, label = 'Extremely\nNegative', size = 4) +
+  annotate('text', x = 0.72, y = 6.8, label = 'Extremely\nPositive', size = 4) +
+  annotate('text', x = 0.72, y = 4.15, label = 'Neutral', size = 4) +
+  scale_y_continuous(breaks = 1:7) +
+  theme(axis.text = element_text(size = 12), axis.title = element_text(size = 14))
+```
+
+
+Clear some memory
+```{r}
+rm(m1_mood)
+gc()
+```
+
+## Mood ~ Deliberate Recall (7B & C)
+
+
+```{r}
+mood_deliberate_trends = m2_mood_recall %>% 
+  emmeans::emtrends(~detail_type, var = 'music_evoked_affect', epred = TRUE) %>%
+  gather_emmeans_draws()
+
+mood_deliberate_trends = mood_deliberate_trends %>%
+  pivot_wider(id_cols = .draw, names_from = detail_type, values_from = .value) %>%
+  mutate(all_detail = (total_external + total_internal)/2) %>%
+  pivot_longer(-.draw) %>%
+  dplyr::mutate(name = dplyr::recode(name,  'all_detail'='All Details\n(Internal + External)',
+                                     'total_internal' = 'Internal Details',
+                                     'total_external' = 'External Details'))
+```
+
+Get draws, manually calculate slopes for % of details that are internal
+
+```{r}
+pred_grid_mood_recall = expand.grid(music_evoked_affect = 1:7,
+                        time = c('child', 'adol', 'adult'),
+                        detail_type = c('total_internal', 'total_external'))
+
+draws_mood_recall = m2_mood_recall %>% 
+  tidybayes::add_fitted_draws(newdata = pred_grid_mood_recall, re_formula = NA) %>%
+  group_by(music_evoked_affect, detail_type, .draw) %>%
+  summarise(mean_details = mean(.value)) 
+
+draws_mood_recall_wide = draws_mood_recall %>%
+  pivot_wider(names_from = detail_type, values_from = mean_details, id_cols = c('.draw', 'music_evoked_affect')) %>%
+  mutate(internal_proportion = total_internal / (total_internal + total_external)) %>%
+  group_by(.draw) %>%
+  nest() %>%
+  mutate(slope = purrr::map(data, ~lm(data = ., internal_proportion ~ music_evoked_affect)$coefficients[2]*100)) %>%
+  unnest(slope) %>%
+  dplyr::select(-data, .draw, value=slope) %>%
+  dplyr::mutate(name = '% of Details Internal')
+
+
+mood_deliberate_trends = rbind(mood_deliberate_trends, draws_mood_recall_wide)
+```
+
+## 7C
+
+```{r}
+mood_deliberate_contrast_plot = ggplot(mood_deliberate_trends, aes(x = value, y = name)) +
+  geom_vline(xintercept = 0, lty = 2) +
+  stat_halfeye(alpha = 0.8, .width = 0.95, normalize = 'all') +
+  theme_bw() +
+  labs(x = 'Posterior Distributions\nAssociation with clip-evoked affect', y  = '', title = '') +
+  theme(axis.text = element_text(size = 11), 
+        axis.title = element_text(size = 11.5),
+        plot.margin = margin(t = 5.5, r = 12, b = 5.5, l = 3, unit = "pt"))
+
+
+summary_line = draws_mood_recall %>%
+  group_by(detail_type, music_evoked_affect) %>%
+  summarise(mean  = mean(mean_details)) %>%
+  dplyr::mutate(detail_type = dplyr::recode(detail_type, 'total_internal' = 'Internal Details',
+                                     'total_external' = 'External Details'))
+
+```
+
+## 7B
+
+```{r}
+mood_recall_prediction_plot = draws_mood_recall %>%
+  dplyr::mutate(detail_type = dplyr::recode(detail_type, 'total_internal' = 'Internal Details',
+                                     'total_external' = 'External Details')) %>%
+  ggplot(data = ., aes(x = music_evoked_affect, y = mean_details)) +
+  tidybayes::stat_lineribbon(.width = 0.95, alpha = 0.3, aes(fill = detail_type, color= detail_type)) +
+  scale_fill_brewer(palette = 'Set1') +
+  scale_color_brewer(palette = 'Set1') +
+  geom_line(data = summary_line, aes(x = music_evoked_affect, y = mean, color = detail_type), lwd = 2) +
+  theme_bw() + 
+  facet_grid(~detail_type) +
+  theme(legend.position = 'none') +
+  scale_x_continuous(breaks = 1:7) +
+  labs(x = 'Sound clip-evoked affect', y = '# of Details Recalled', title = '') +
+  theme(axis.text = element_text(size = 12), axis.title = element_text(size = 14),
+        strip.text = element_text(size = 12)) +
+  ylim(10,18)
+```
+
+
+# Put together grid for figure 7
+```{r}
+mood_bottom = cowplot::plot_grid(mood_recall_prediction_plot, mood_deliberate_contrast_plot, align = 'h', axis = 'bt', 
+                                 labels = c('B', 'C'), rel_widths = c(1, 1.3))
+
+mood_plot = cowplot::plot_grid(mood_condition_plot, mood_bottom, nrow = 2, labels = c('A', ''))
+
+
+cowplot::save_plot(mood_plot, filename = '../../results/fig7_mood_plot.png', base_height = 8, base_width = 8)
+```
+
+Clear memory
+
+```{r}
+rm(m2_mood_recall)
+gc()
+```
+
+
+# Figure 8: Associations between deliberate and spontaneous recall
+
+```{r}
+pred_grid_spontaneous = expand.grid(spont_memory = c('y', 'n'),
+                        detail_type = c('total_internal', 'total_external'))
+
+draws_spontaneous = m3_spontaneous_recall %>% 
+  tidybayes::add_fitted_draws(newdata = pred_grid_spontaneous, re_formula = NA) 
+
+draws_spontaneous_wide = draws_spontaneous %>%
+  pivot_wider(names_from = detail_type, values_from = .value, id_cols = c('spont_memory', '.draw')) %>%
+  mutate(internal_prop = total_internal / (total_internal + total_external),
+         total = total_internal + total_external) %>%
+  group_by(spont_memory, .draw) %>%
+  summarise(mean_internal = mean(total_internal), 
+            mean_external = mean(total_external),
+            mean_internal_prop = mean(internal_prop),
+            mean_total = mean(total)) 
+
+draws_wide_comparison_spontaneous= draws_spontaneous_wide %>%
+  pivot_longer(contains('mean')) %>%
+  pivot_wider(names_from = spont_memory, values_from = value, id_cols = c(.draw, name)) %>%
+  dplyr::mutate(diff = `y`-`n`,
+                diff = ifelse(name == 'mean_internal_prop', 100*diff, diff),
+                name = dplyr::recode(name,
+                                     'mean_total'='All Details\n(Internal + External)',
+                                     'mean_internal_prop' = '% of Details Internal',
+                                     'mean_internal' = 'Internal Details',
+                                     'mean_external' = 'External Details'))
+
+```
+
+## Figure 8B
+```{r}
+spont_memory_contrast_plot = ggplot(draws_wide_comparison_spontaneous, aes(x = diff, y = name)) +
+  geom_vline(xintercept = 0, lty = 2) +
+  stat_halfeye(alpha = 0.8, .width = 0.95) +
+  theme_bw() +
+  labs(x = 'Posterior Distribitions\nSpontaneous > No Spontaneous Memory', y  = '') +
+  theme(axis.text = element_text(size = 12), axis.title = element_text(size = 12),
+        strip.text = element_text(size = 12))
+
+```
+
+## Figure 8A
+
+```{r}
+pred_plot_spontaneous = draws_spontaneous_wide %>%
+  pivot_longer(c(mean_internal, mean_external), names_to = 'detail_type', values_to = 'num_details') %>%
+  mutate(detail_type = dplyr::recode(detail_type, 'mean_external'='External Details', 'mean_internal'=' Internal Details'),
+         spont_memory = dplyr::recode(spont_memory, 'y'='Yes', 'n'='No')) %>%
+  ggplot(data = ., aes(x = spont_memory, y = num_details)) +
+  facet_grid(~detail_type) +
+  stat_halfeye(aes(fill = spont_memory), alpha = 0.8, .width = .95) +
+  scale_fill_brewer(palette = 'Dark2') +
+  theme_bw() + 
+  theme(legend.position = 'none') +
+  labs(x = 'Spontaneous memory during listening to sound clip', y = '# of Details Recalled (Prompted)') +
+  theme(axis.text = element_text(size = 12), axis.title = element_text(size = 14),
+        strip.text = element_text(size = 12))
+
+```
+
+## Make Figure 8 panel
+
+```{r}
+spontaneous_deliberaate_plt = cowplot::plot_grid(pred_plot_spontaneous, spont_memory_contrast_plot, labels= c('A', 'B'))
+
+cowplot::save_plot(spontaneous_deliberaate_plt, filename = '../../results/fig8_spontaneous_deliberate_plot.png', base_height = 4, base_width = 11)
+```

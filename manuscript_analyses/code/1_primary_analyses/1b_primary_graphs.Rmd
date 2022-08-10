@@ -1,0 +1,317 @@
+---
+title: "Graphs of primary analyses"
+author: "Paul Bloom"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load packages
+
+```{r, warning=FALSE, message=FALSE}
+library(Matrix)
+library(dbplyr)
+library(tidyverse)
+library(ggplot2)
+library(brms)
+library(cowplot)
+library(tidybayes)
+library(emmeans)
+library(bayestestR)
+theme_set(theme_bw())
+```
+
+# Load data & models
+
+```{r}
+mem_data = read_csv('../../data/autobio_interview_scores.csv')
+load('../../results/models/primary_analysis_models.rda')
+```
+
+
+# Plot for familiar > unfamiliar music contrast
+
+```{r}
+pred_grid = expand.grid(condition = c('U','F', 'C'), 
+                        time = c('child', 'adol', 'adult'),
+                        detail_type = c(-0.5, 0.5)) 
+
+draws = m1_condition %>% tidybayes::add_fitted_draws(newdata = pred_grid, re_formula = NA) %>%
+  dplyr::mutate(detail_type = dplyr::recode(detail_type, '-0.5'='total_internal', '0.5'='total_external'))
+
+draws_wide = draws %>%
+  pivot_wider(names_from = detail_type, values_from = .value, id_cols = c('condition', 'time', '.draw')) %>%
+  mutate(internal_prop = total_internal / (total_internal + total_external),
+         total = total_internal + total_external) %>%
+  group_by(condition, .draw) %>%
+  summarise(mean_internal = mean(total_internal), 
+            mean_external = mean(total_external),
+            mean_internal_prop = mean(internal_prop),
+            mean_total = mean(total)) %>%
+  mutate(condition = dplyr::recode(condition, 'U'='Unfamiliar Music', 'F'='Familiar Music', 'C'='Non-music Clips'))
+
+
+intern_extern_summary = mem_data %>%
+  dplyr::filter(is.na(exclude_trial)) %>%
+  pivot_longer(c(total_external, total_internal), names_to = 'detail_type', values_to = 'num_details') %>%
+  group_by(participant_id, condition, detail_type) %>%
+  summarise(mean_details = mean(num_details)) %>%
+  dplyr::mutate(., detail_type = dplyr::recode(detail_type, 'total_external'='External Details', 'total_internal'='Internal Details'),
+                condition = dplyr::recode(condition, 'U'='Unfamiliar Music', 'F'='Familiar Music', 'C'='Non-music Clips')) 
+
+mean_median_summary = mem_data %>%
+  dplyr::filter(is.na(exclude_trial)) %>%
+  pivot_longer(c(total_external, total_internal), names_to = 'detail_type', values_to = 'num_details') %>%
+  group_by(participant_id, condition, detail_type) %>%
+  summarise(num_details = mean(num_details)) %>%
+  dplyr::mutate(., detail_type = dplyr::recode(detail_type, 'total_external'='External Details', 'total_internal'='Internal Details'),
+                condition = dplyr::recode(condition, 'U'='Unfamiliar Music', 'F'='Familiar Music', 'C'='Non-music Clips')) 
+```
+
+### Figure 5A: posterior predictions of average internal & external details as a function of music condition
+
+```{r}
+pred_plot_condition = draws_wide %>%
+  pivot_longer(c(mean_internal, mean_external), names_to = 'detail_type', values_to = 'num_details') %>%
+  mutate(detail_type = dplyr::recode(detail_type, 'mean_external'='External Details', 'mean_internal'=' Internal Details'),
+  condition = dplyr::recode(condition, 'Unfamiliar Music'='Unfamiliar\nMusic', 'Familiar Music'='Familiar\nMusic', 'Non-music Clips'='Non-music\nClips')) %>%
+  ggplot(data = ., aes(x = condition, y = num_details)) +
+  facet_grid(~detail_type) +
+  stat_halfeye(aes(fill = condition), alpha = 0.7, .width = .95) +
+  scale_fill_viridis_d() +
+  theme(legend.position = 'none') +
+  labs(x = 'Condition', y = '# of Details') +
+  scale_x_discrete(limits = c('Familiar\nMusic', 'Unfamiliar\nMusic', 'Non-music\nClips')) +
+  scale_y_continuous(breaks = 10:18) +
+  theme(text = element_text(face = 'bold'),
+        axis.text = element_text(size = 12), 
+        axis.title = element_text(size = 14),
+        strip.text = element_text(size = 12))
+
+```
+
+
+```{r}
+draws_wide_comparison_familiar_unfamiliar = draws_wide %>%
+  pivot_longer(contains('mean')) %>%
+  pivot_wider(names_from = condition, values_from = value, id_cols = c(.draw, name)) %>%
+  dplyr::mutate(diff = `Familiar Music`-`Unfamiliar Music`,
+                diff = ifelse(name == 'mean_internal_prop', 100*diff, diff),
+                name = dplyr::recode(name,
+                                     'mean_total'='All Details\n(Internal + External)',
+                                     'mean_internal_prop' = '% of Details Internal',
+                                     'mean_internal' = 'Internal Details',
+                                     'mean_external' = 'External Details'))
+
+
+draws_wide_comparison_familiar_unfamiliar %>%
+  group_by(name) %>%
+  summarise(pct_below_2 = sum(abs(diff) <= 1)/n(),
+            pct_positive = sum(diff > 0)/n())
+
+familiar_unfamiliar_contrast_plot = ggplot(draws_wide_comparison_familiar_unfamiliar, aes(x = diff, y = name)) +
+  geom_vline(xintercept = 0, lty = 2) +
+  stat_halfeye(alpha = 0.8, .width = 0.95) +
+  theme_bw() +
+  labs(x = 'Familiar>Unfamiliar Music Contrast', y  = '', title = '') +
+  annotate('text', x = 2.8, y = 0.75, label = 'Familiar Music Greater', color = 'Blue', size = 3.5) +
+  annotate('text', x = -3.0, y = 0.75, label = 'Unfamiliar Music Greater', color = 'Red', size = 3.5)  +
+  theme(text = element_text(face = 'bold', size = 11), 
+        axis.text = element_text(size = 12), 
+        axis.title.y = element_text(size = 14),
+        axis.title.x = element_text(size = 13),
+        strip.text = element_text(size = 12))
+  
+
+draws_wide_comparison_familiar_unfamiliar %>%
+  group_by(name) %>%
+  summarise(mean = mean(diff),
+            lwr = quantile(diff, probs = 0.025),
+            upr = quantile(diff, probs = 0.975))
+
+
+draws_wide_comparison_familiar_unfamiliar %>%
+  group_by(name) %>%
+  summarise(mean = mean(diff), d = bayestestR::hdi(diff)) %>%
+  unnest(d)
+```
+
+
+# All Music > No Music
+
+```{r}
+draws_music_no_music = mutate(draws, condition = ifelse(condition == 'C', 'No Music', 'Music')) %>%
+  group_by(condition, time, detail_type, .draw) %>%
+  summarise(.value = mean(.value)) %>%
+  ungroup()
+
+draws_wide_music_no_music = draws_music_no_music %>%
+  pivot_wider(names_from = detail_type, values_from = .value, id_cols = c('condition', 'time', '.draw')) %>%
+  mutate(internal_prop = total_internal / (total_internal + total_external),
+         total = total_internal + total_external) %>%
+  group_by(condition, .draw) %>%
+  summarise(mean_internal = mean(total_internal), 
+            mean_external = mean(total_external),
+            mean_internal_prop = mean(internal_prop),
+            mean_total = mean(total))
+
+draws_wide_comparison_music_no_music = draws_wide_music_no_music %>%
+  pivot_longer(contains('mean')) %>%
+  pivot_wider(names_from = condition, values_from = value, id_cols = c(.draw, name)) %>%
+  dplyr::mutate(diff = `Music`-`No Music`,
+                diff = ifelse(name == 'mean_internal_prop', 100*diff, diff),
+                name = dplyr::recode(name,
+                                     'mean_total'='All Details\n(Internal + External)',
+                                     'mean_internal_prop' = '% of Details Internal',
+                                     'mean_internal' = 'Internal Details',
+                                     'mean_external' = 'External Details'))
+
+
+# Means + 95% CIs for comparisons
+draws_wide_comparison_music_no_music %>%
+  group_by(name) %>%
+  summarise(mean = mean(diff), d = bayestestR::hdi(diff)) %>%
+  unnest(d)
+
+
+draws_wide_comparison_music_no_music %>%
+  group_by(name) %>%
+  summarise(pct_below_2 = sum(abs(diff) <= 2)/n(),
+            pct_positive = sum(diff > 0)/n())
+
+corrected_interval_calcs = draws_wide_comparison_music_no_music %>%
+  group_by(name) %>%
+  summarise(proportion_consistent = case_when(
+    median(diff) >= 0 ~ sum(diff >= 0)/n(),
+    median(diff) < 0 ~ sum(diff < 0)/n())) %>%
+  mutate(rank = rank(proportion_consistent),
+         upr_corrected = 1 - (0.05/2)/rank,
+         lwr_corrected = 1 - upr_corrected)
+
+
+corrected_intervals = draws_wide_comparison_music_no_music %>%
+  left_join(corrected_interval_calcs, by = 'name') %>%
+  group_by(name) %>%
+  summarise(mean = mean(diff),
+            rank = rank[1],
+            upr_corrected = quantile(diff, upr_corrected[1]),
+            lwr_corrected = quantile(diff, lwr_corrected[1]),
+            lwr_95 = quantile(diff, .025),
+            upr_95 = quantile(diff, .975))
+
+
+music_no_music_contrast_plot = ggplot(draws_wide_comparison_music_no_music, aes(x = diff, y = name)) +
+  geom_vline(xintercept = 0, lty = 2) +
+  stat_halfeye(alpha = 0.8, .width = 0.95) +
+  theme_bw() +
+  labs(x = 'Music>No Music Contrast', y  = '', title = '') +
+  annotate('text', x = 2, y = 0.75, label = 'Music Greater', color = 'Blue') +
+  annotate('text', x = -2, y = 0.75, label = 'No Music Greater', color = 'Red') +
+  theme(text = element_text(face = 'bold'), 
+        axis.text = element_text(size = 12), axis.title = element_text(size = 14),
+        strip.text = element_text(size = 12))
+```
+
+# Put together panels for plot of deliberate recall ~ condition
+
+```{r}
+contrast_panel = cowplot::plot_grid(familiar_unfamiliar_contrast_plot, music_no_music_contrast_plot, labels = c('B', 'C'))
+condition_deliberate_recall_plt = cowplot::plot_grid(pred_plot_condition, contrast_panel, labels = c('A', ''), nrow = 2)
+cowplot::save_plot(condition_deliberate_recall_plt, filename = '../../results/fig5_condition_deliberate_recall_plt.png', 
+                   base_width = 12, base_height = 8)
+```
+
+
+# Participant-reported familiarity
+
+```{r}
+print(m2_familiarity, digits = 5)
+
+# Us emmeans::emtrends() to get association with familiarity for both types of details 
+familiarity_trends = m2_familiarity %>% emmeans::emtrends(~detail_type, var = 'familiarity', epred = TRUE) %>%
+  gather_emmeans_draws() %>%
+  dplyr::mutate(detail_type = dplyr::recode(detail_type, '-0.5'='total_internal', '0.5'='total_external'))
+
+familiarity_trends = familiarity_trends %>%
+  pivot_wider(id_cols = .draw, names_from = detail_type, values_from = .value) %>%
+  mutate(all_detail = (total_external + total_internal)/2) %>%
+  pivot_longer(-.draw) %>%
+  dplyr::mutate(name = dplyr::recode(name,  'all_detail'='All Details\n(Internal + External)',
+                                     'total_internal' = 'Internal Details',
+                                     'total_external' = 'External Details'))
+```
+
+Get draws, manually calculate slopes for % of details that are internal
+
+```{r}
+pred_grid_familiarity = expand.grid(familiarity = 1:5,
+                        time = c('child', 'adol', 'adult'),
+                        detail_type = c(-0.5, 0.5)) 
+
+draws_familiarity = m2_familiarity %>% 
+  tidybayes::add_fitted_draws(newdata = pred_grid_familiarity, re_formula = NA) %>%
+  dplyr::mutate(detail_type = dplyr::recode(detail_type, "-0.5"='total_internal', "0.5"='total_external')) %>%
+  group_by(familiarity, detail_type, .draw) %>%
+  summarise(mean_details = mean(.value)) 
+
+# Note: internal proportion coefficient represents the change from familiarity 1 to familiarity 5
+familarity_draws_wide = draws_familiarity %>%
+  pivot_wider(names_from = detail_type, values_from = mean_details, id_cols = c('.draw', 'familiarity')) %>%
+  mutate(internal_proportion = total_internal / (total_internal + total_external)) %>%
+  group_by(.draw) %>%
+  nest() %>%
+  mutate(slope = purrr::map(data, ~lm(data = ., internal_proportion ~ familiarity)$coefficients[2]*100)) %>%
+  unnest(slope) %>%
+  dplyr::select(-data, .draw, value=slope) %>%
+  dplyr::mutate(name = '% of Details Internal') 
+
+
+familiarity_trends = rbind(familiarity_trends, familarity_draws_wide)
+
+familiarity_contrast_plot = ggplot(familiarity_trends, aes(x = value, y = name)) +
+  geom_vline(xintercept = 0, lty = 2) +
+  stat_halfeye(alpha = 0.8, .width = 0.95, normalize = 'all') +
+  theme_bw() +
+  labs(x = 'Posterior Distributions\nAssociations with music clip familiarity', y  = '') +
+  theme(text = element_text(face = 'bold'), 
+        axis.text = element_text(size = 12), axis.title = element_text(size = 13),
+        strip.text = element_text(size = 12),
+        plot.margin = margin(t = 5.5, r = 10, b = 5.5, l = 2, unit = "pt"))
+
+
+raw_familiarity_summary = mem_data %>%
+  dplyr::filter(is.na(exclude_trial), condition != 'C') %>%
+  pivot_longer(c(total_external, total_internal), names_to = 'detail_type', values_to = 'num_details') %>%
+  dplyr::mutate(detail_type = dplyr::recode(detail_type,
+                                     'total_internal' = 'Internal Details',
+                                     'total_external' = 'External Details'))
+
+
+
+
+familiarity_prediction_plot = draws_familiarity %>%
+  dplyr::mutate(detail_type = dplyr::recode(detail_type, 'total_internal' = 'Internal Details',
+                                     'total_external' = 'External Details')) %>%
+  ggplot(data = ., aes(x = familiarity, y = mean_details)) +
+  tidybayes::stat_lineribbon(.width = 0.95, alpha = 0.7, aes(fill = detail_type, color= detail_type)) +
+  scale_fill_brewer(palette = 'Set1') +
+  scale_color_brewer(palette = 'Set1') +
+  facet_grid(~detail_type) +
+  theme(legend.position = 'none') +
+  labs(x = 'Participant-reported music clip familiarity', y = '# of Details Recalled') +
+  coord_cartesian(ylim = c(10,18)) +
+  theme(text = element_text(face = 'bold'), 
+        axis.text = element_text(size = 12), axis.title = element_text(size = 14),
+        strip.text = element_text(size = 12))
+```
+
+# Using cowplot, put plots together into panel
+
+```{r}
+familiarity_self_report_grid = cowplot::plot_grid(familiarity_prediction_plot, familiarity_contrast_plot, labels = c('A', 'B'), 
+                                                  nrow = 1, rel_widths = c(1, 1.15))
+cowplot::save_plot(familiarity_self_report_grid, filename = '../../results/fig6_familiarity_deliberate_recall_plot.png', 
+                   base_height =4, base_width = 12)
+```

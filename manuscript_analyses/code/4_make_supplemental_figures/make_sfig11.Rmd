@@ -1,0 +1,44 @@
+---
+title: "Make Sfig 11"
+author: "Paul Alexander Bloom"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(Matrix)
+library(tidyverse)
+library(ggplot2)
+library(brms)
+library(cowplot)
+theme_set(theme_bw())
+```
+
+```{r}
+
+d = read_csv('../../data/session_data.csv')
+
+familiar_clips_plot = d %>%
+  dplyr::filter(condition == 'F') %>%
+  group_by(participant_id, time) %>%
+  summarise(mean_familiarity = mean(familiarity),
+            mean_liking = mean(clip_liking)) %>%
+  pivot_longer(c(mean_familiarity, mean_liking)) %>%
+  dplyr::mutate(name = dplyr::recode(name, 'mean_familiarity'='Familiarity with clip', 'mean_liking'='Liking of clip')) %>%
+  ggplot(data = ., aes(x = time, y =value)) +
+  geom_boxplot(outlier.shape = NA) + 
+  geom_line(aes(group = participant_id), color = 'blue', 
+            position = position_dodge(0.05), alpha = 0.1) +
+  labs(y = 'Participant ratings on 1-5 scale', 
+       x = 'Time window of song release',
+       title = 'Participant ratings of music clips in the famililiar condition, by time window') +
+  scale_x_discrete(limits = c('child', 'adol', 'adult'), 
+                   labels = c('Childhood\n5-9 years', 
+                              'Adolescence\n14-18 years', 
+                              'Adulthood\n20-25 years')) +
+  facet_grid(~name) +
+  ylim(1,5)
+
+
+ggsave(familiar_clips_plot, file = '../../results/supplemental_figs/sfig11_time_familiarity_liking.png', height = 4, width = 8)
+```
