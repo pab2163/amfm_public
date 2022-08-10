@@ -42,8 +42,9 @@
 Rename the folder with the correct file syntax!
 
 <strong> File syntax </strong>
-
+s
 subjectID_transcription_s#
+
 Ex: `AMFM001_transcription_s1`
 
 
