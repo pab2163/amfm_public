@@ -1,0 +1,65 @@
+---
+title: "Make Counterbalances"
+author: "Paul A. Bloom"
+date: "June 20, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(stringr)
+library(tidyr)
+```
+
+## Create counterbalance dataframe
+
+  * 6 different orders for block (C = child, T = teen (adol), A = adult)
+  * 6 different orders for condition (F = familiar, U = unfamiliar, C = control (silence))
+  * 36 total counterbalance orders -- counterbalanced across subjects
+  * Instead of keeping the counterbalances in order, shuffle within each group of 36 to make sure there won't be any 'order effects'
+  
+```{r}
+set.seed(1)
+nSubs = 300
+seq36 = rep(1:36, nSubs)
+bal = tibble(subIndex = 1:nSubs) %>%
+  dplyr::mutate(., seq36 = seq36[1:nSubs],
+         blockOrder = case_when(
+           seq36 <= 6 ~ 'CTA',
+           seq36 > 6 & seq36 <= 12 ~ 'CAT',
+           seq36 > 12 & seq36 <= 18 ~ 'TCA',
+           seq36 > 18 & seq36 <= 24 ~ 'TAC',
+           seq36 > 24 & seq36 <= 30 ~ 'ACT',
+           seq36 > 30 & seq36 <= 36 ~ 'ATC'),
+         conditionOrder = case_when(
+           seq36 %% 6 == 0 ~ 'FUC',
+           seq36 %% 6 == 1 ~ 'UFC',
+           seq36 %% 6 == 2 ~ 'UCF',
+           seq36 %% 6 == 3 ~ 'FCU',
+           seq36 %% 6 == 4 ~ 'CFU',
+           seq36 %% 6 == 5 ~ 'CUF'),
+         cb = paste0(blockOrder, conditionOrder),
+         set = ceiling(subIndex/36)) %>%
+  group_by(set) %>%
+  mutate(., 
+         cbShuffle = sample(cb)) %>%
+  ungroup() %>%
+  select(., -cb)
+
+
+check = bal[37:72,]
+length(unique(check$cbShuffle))
+```
+
+# Write out counterbalance dataframe
+
+```{r}
+bal$subId = paste0('AMFM', stringr::str_pad(bal$subIndex, 3, pad = '0'))
+bal = dplyr::select(bal, cb = cbShuffle, subid = subId)
+
+
+# write it out with date in filename to avoid overwriting if script is rerun
+date = gsub(' ', '_', as.character(Sys.Date()))
+write.csv(bal, file = paste0('counterbalance_', date, '.csv'), row.names = FALSE)
+```

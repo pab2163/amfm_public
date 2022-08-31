@@ -1,0 +1,9 @@
+Now, I'm going to read you a list of events that may have happened in your life. 
+For each event, please tell me 'yes' if you can remember a specific instance of that event and 'no', if you do not. 
+When you tell me whether you can remember each event, please only say 'yes' if you can recall a *specific* instance of this event 
+For example, if the prompt is 'playing a childhood game', only say yes if you remember a specific time playing a game. 
+If you can remember that you did play games in childhood, but do not recall a specific time, please say 'no'
+I may ask you to recall events in detail later on, so if you would not feel comfortable discussing a particular event, please say 'no' 
+We do not expect every event I read to you to have happened in your life, so please do not worry if you have not experienced or do not recall some of these events.
+
+Do you have any questions?
