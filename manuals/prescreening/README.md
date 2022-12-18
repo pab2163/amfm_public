@@ -35,13 +35,12 @@ Remind participant of prescreening time via email, with Zoom link
 * Get your REDCap consent form ready:
 
     1. Open [REDCap](https://redcap.psych.columbia.edu/index.php) website
-    2. Login with your username and password: <img src="login.png">
-    * <strong> username should be your uni</strong>
-    3. Click on the [AMFM Study](https://redcap.psych.columbia.edu/redcap_v7.4.9/ProjectSetup/index.php?pid=31) under "My Projects":
+    2. Login with your username and password:
+    3. Click on the AMFM Study under "My Projects":
 <img src="my projects.png">
-    4. Find "Manage Survey Participants" on the left side of the page, under "Data Collection" section:<img src="manage survey participants.jpg">
-    5. Click on "Participant List" tab on the main page, you'll see the list of participant emails with their identifiers; <img src="participant list tab.jpg">clicking on the "Participant Identifier" will sort the participants by their identifier from smallest to largest
-    6. Click on the green check in the "Responded?" column next to the participant you're working with; this will open up the consent form saved in the REDCap system; scroll down and find the emergency contact information if they chose to provide <img src="emergence contact.jpg">
+    4. Find "Manage Survey Participants" on the left side of the page, under "Data Collection" section
+    5. Click on "Participant List" tab on the main page, you'll see the list of participant emails with their identifiers. Clicking on the "Participant Identifier" will sort the participants by their identifier from smallest to largest
+    6. Click on the green check in the "Responded?" column next to the participant you're working with; this will open up the consent form saved in the REDCap system; scroll down and find the emergency contact information if they chose to provide 
 
 
 * Be ready to get on the Zoom if needed if the participant is extra early
