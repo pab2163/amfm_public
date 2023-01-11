@@ -1,5 +1,5 @@
 ---
-title: "Make Sfigure 7"
+title: "Make Sfigure 10"
 author: "Paul Bloom"
 output: html_document
 ---
@@ -336,7 +336,7 @@ alt_exposure = cowplot::plot_grid(exposure_prediction_plot_alt, exposure_contras
 ```{r}
 exposure_timed_plot = cowplot::plot_grid(exposure_plt, alt_exposure, nrow = 2)
 
-cowplot::save_plot(exposure_timed_plot, filename = '../../results/supplemental_figs/sfig7_timed_exposure_deliberate_recall.png',
+cowplot::save_plot(exposure_timed_plot, filename = '../../results/supplemental_figs/sfig10_timed_exposure_deliberate_recall.png',
                    base_width = 13, base_height = 8)
 
 ```

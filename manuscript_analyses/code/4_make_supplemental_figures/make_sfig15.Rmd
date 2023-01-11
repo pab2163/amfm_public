@@ -1,5 +1,5 @@
 ---
-title: "Make Sfig 11"
+title: "Make Sfig 15"
 author: "Paul Alexander Bloom"
 output: html_document
 ---
@@ -40,5 +40,5 @@ familiar_clips_plot = d %>%
   ylim(1,5)
 
 
-ggsave(familiar_clips_plot, file = '../../results/supplemental_figs/sfig11_time_familiarity_liking.png', height = 4, width = 8)
+ggsave(familiar_clips_plot, file = '../../results/supplemental_figs/sfig15_time_familiarity_liking.png', height = 4, width = 8)
 ```

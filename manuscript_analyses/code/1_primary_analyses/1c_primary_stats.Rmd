@@ -1,5 +1,5 @@
 ---
-title: "Primary Planned Analysis Statistics"
+title: "1C: Primary Planned Analysis Statistics"
 author: "Paul Bloom"
 output: html_document
 ---
@@ -31,7 +31,7 @@ mem_data = read_csv('../../data/autobio_interview_scores.csv')
 load('../../results/models/primary_analysis_models.rda')
 ```
 
-# Primary Analysis #1: Effects of familiar vs. unfamiliar music exposure on prompted memory recall (Fig. 5A-B)
+# Primary Analysis #1: Effects of familiar vs. unfamiliar music exposure on prompted memory recall (Fig. 3A-B)
 
 * Since we modeled internal details & external details within the same model, we can use samples from the posterior predictive distribution to compute contrasts effects on *all details (sum of internal + external)* and *the percentage of details that were internal*.
 * In general, all mathematical operations are computed separately for *each sample ('draw')* from the posterior predictive distributions, then summaries (medians + HDIs) are calculated at the end
@@ -104,7 +104,7 @@ draws_wide_comparison_familiar_unfamiliar %>%
 ```
 
 
-# Primary Analysis #2: Associations between ratings of song familiarity and prompted memory recall (Fig. 6)
+# Primary Analysis #2: Associations between ratings of song familiarity and prompted memory recall (Fig. 4)
 
 
 ### Use `emmeans::emtrends()` to get marginal associations of familiarity with # of internal details and external details recalled
@@ -180,7 +180,7 @@ familiarity_trends %>%
   DT::datatable()
 ```
 
-# Primary Analysis #3: Effects of music vs. non-music clips on prompted memory recall (Fig. 5A & C)
+# Primary Analysis #3: Effects of music vs. non-music clips on prompted memory recall (Fig. 3A & C)
 
 First, group posterior predictions from both the familiar music & unfamiliar music conditions together and average them. 
 

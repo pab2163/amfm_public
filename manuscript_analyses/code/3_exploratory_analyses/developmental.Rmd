@@ -1,5 +1,5 @@
 ---
-title: "Exploratory Analysis: Differences in prompted recall as a function of age at the time of the prompted event (Fig. 9)"
+title: "3: Exploratory Analysis: Differences in prompted recall as a function of age at the time of the prompted event (Fig. 5)"
 author: "Paul Bloom"
 output: html_document
 ---
@@ -121,10 +121,10 @@ Put plots together in grid for Fig. 9
 
 ```{r}
 dev_grid = cowplot::plot_grid(dev_plot, dev_comparisons_plot, nrow = 2, labels = c('A', 'B'), rel_heights = c(1.5, 1), align = 'v', axis = 'lr')
-cowplot::save_plot(dev_grid, filename = '../../results/fig9_developmental_grid.png', base_height = 8, base_width = 12.7)
+cowplot::save_plot(dev_grid, filename = '../../results/fig5_developmental_grid.png', base_height = 8, base_width = 12.7)
 ```
 
-# Stats for Differences in prompted recall as a function of age at the time of the prompted event (Fig. 9)
+# Stats for Differences in prompted recall as a function of age at the time of the prompted event (Fig. 5)
 
 Posterior medians and 95% HDIs. 
 

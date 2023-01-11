@@ -1,5 +1,5 @@
 ---
-title: "primary_analyses"
+title: "2B: Secondary Graphs"
 author: "Paul Bloom"
 output: html_document
 ---
@@ -40,9 +40,7 @@ mem_data_long = mem_data %>%
 
 ```
 
-# Figure 7
-
-## 7A
+# Supplemental figure 9
 
 ```{r}
 mood_fx = brms::conditional_effects(m1_mood)
@@ -75,7 +73,7 @@ rm(m1_mood)
 gc()
 ```
 
-## Mood ~ Deliberate Recall (7B & C)
+## Mood ~ Deliberate Recall 
 
 
 ```{r}
@@ -118,7 +116,7 @@ draws_mood_recall_wide = draws_mood_recall %>%
 mood_deliberate_trends = rbind(mood_deliberate_trends, draws_mood_recall_wide)
 ```
 
-## 7C
+## Subpanel C
 
 ```{r}
 mood_deliberate_contrast_plot = ggplot(mood_deliberate_trends, aes(x = value, y = name)) +
@@ -139,7 +137,7 @@ summary_line = draws_mood_recall %>%
 
 ```
 
-## 7B
+## Subpanel B
 
 ```{r}
 mood_recall_prediction_plot = draws_mood_recall %>%
@@ -161,7 +159,7 @@ mood_recall_prediction_plot = draws_mood_recall %>%
 ```
 
 
-# Put together grid for figure 7
+# Put together grid for figure panel
 ```{r}
 mood_bottom = cowplot::plot_grid(mood_recall_prediction_plot, mood_deliberate_contrast_plot, align = 'h', axis = 'bt', 
                                  labels = c('B', 'C'), rel_widths = c(1, 1.3))
@@ -169,7 +167,7 @@ mood_bottom = cowplot::plot_grid(mood_recall_prediction_plot, mood_deliberate_co
 mood_plot = cowplot::plot_grid(mood_condition_plot, mood_bottom, nrow = 2, labels = c('A', ''))
 
 
-cowplot::save_plot(mood_plot, filename = '../../results/fig7_mood_plot.png', base_height = 8, base_width = 8)
+cowplot::save_plot(mood_plot, filename = '../../results/supplemental_figs/sfig9_mood_plot.png', base_height = 8, base_width = 8)
 ```
 
 Clear memory
@@ -180,7 +178,7 @@ gc()
 ```
 
 
-# Figure 8: Associations between deliberate and spontaneous recall
+# Supplemental Figure 11: Associations between deliberate and spontaneous recall
 
 ```{r}
 pred_grid_spontaneous = expand.grid(spont_memory = c('y', 'n'),
@@ -212,7 +210,7 @@ draws_wide_comparison_spontaneous= draws_spontaneous_wide %>%
 
 ```
 
-## Figure 8B
+## sFigure 11B
 ```{r}
 spont_memory_contrast_plot = ggplot(draws_wide_comparison_spontaneous, aes(x = diff, y = name)) +
   geom_vline(xintercept = 0, lty = 2) +
@@ -224,7 +222,7 @@ spont_memory_contrast_plot = ggplot(draws_wide_comparison_spontaneous, aes(x = d
 
 ```
 
-## Figure 8A
+## sFigure 11A
 
 ```{r}
 pred_plot_spontaneous = draws_spontaneous_wide %>%
@@ -243,10 +241,10 @@ pred_plot_spontaneous = draws_spontaneous_wide %>%
 
 ```
 
-## Make Figure 8 panel
+## Make sFigure 11 panel
 
 ```{r}
 spontaneous_deliberaate_plt = cowplot::plot_grid(pred_plot_spontaneous, spont_memory_contrast_plot, labels= c('A', 'B'))
 
-cowplot::save_plot(spontaneous_deliberaate_plt, filename = '../../results/fig8_spontaneous_deliberate_plot.png', base_height = 4, base_width = 11)
+cowplot::save_plot(spontaneous_deliberaate_plt, filename = '../../results/supplemental_figs/sfig11_spontaneous_deliberate_plot.png', base_height = 4, base_width = 11)
 ```

@@ -1,5 +1,5 @@
 ---
-title: "Supplemental Figures 5, 6 & 8"
+title: "Supplemental Figures 7,8, 12"
 author: "Paul Bloom"
 output: html_document
 ---
@@ -18,7 +18,7 @@ library(bayestestR)
 theme_set(theme_bw())
 ```
 
-# Sfig 8
+# Sfig 12
 
 ```{r}
 mem_data = read_csv('../../data/autobio_interview_scores.csv')
@@ -58,23 +58,23 @@ detail_sds_pilot_full = ggplot(detail_sds, aes(x = data, y = value, color = name
 
 
 ```{r}
-ggsave(detail_sds_pilot_full, file = '../../results/supplemental_figs/sfig8_detail_sds_pilot_full.png',
+ggsave(detail_sds_pilot_full, file = '../../results/supplemental_figs/sfig12_detail_sds_pilot_full.png',
        width = 6, height = 4)
 ```
 
 
 
-# Sfigs 5 & 6
+# Sfigs 7&78
 
 ## Load model from primary analysis
-```{r load_data}
+```{r load_data1}
 mem_data = read_csv('../../data/autobio_interview_scores.csv') %>%
   dplyr::filter(is.na(exclude_trial)) 
 load('../../results/models/primary_analysis_models.rda')
 ```
 
 
-# Familiar > Unfamiliar (Sfig. 5)
+# Familiar > Unfamiliar (Sfig. 7)
 
 ```{r}
 pred_grid = expand.grid(condition = c('U','F', 'C'), 
@@ -144,12 +144,12 @@ familiar_unfamiliar_heterogeneity = ggplot(draws_wide_comparison, aes(x = rank, 
 
 
 ggsave(familiar_unfamiliar_heterogeneity, 
-       file = '../../results/supplemental_figs/sfig5_familiar_effect_heterogeneity.png',
+       file = '../../results/supplemental_figs/sfig7_familiar_effect_heterogeneity.png',
        width = 8, height = 8)
 ```
 
 
-# Music > no music (Sfig 6)
+# Music > no music (Sfig 8)
 ```{r}
 draws_music_no_music = mutate(draws, condition = ifelse(condition == 'C', 'No Music', 'Music')) %>%
   group_by(condition, time, detail_type, .draw, participant_id) %>%
@@ -204,10 +204,82 @@ music_no_music_heterogeneity = ggplot(draws_wide_comparison_music_no_music, aes(
   geom_errorbar(aes(ymin = lwr, ymax = upr), width = 0, alpha = 0.5) +
   geom_hline(yintercept = 0, lty = 2, color = 'purple') +
   facet_grid(rows = vars(name), scales = 'free_y') +
-  geom_text(data = sds, aes(x = 15, y = max, label = paste0('Effect SD across participants=', sd))) +
+  geom_text(data = sds_music_no_music, aes(x = 15, y = max, label = paste0('Effect SD across participants=', sd))) +
   labs(x = 'Participants', y = 'Music > No-Music Contrast', title = 'Between-participant heterogeneity in music > no music effects')
 
 ggsave(music_no_music_heterogeneity,
-       file = '../../results/supplemental_figs/sfig6_music_no_music_effect_heterogeneity.png',
+       file = '../../results/supplemental_figs/sfig8_music_no_music_effect_heterogeneity.png',
        width = 8, height = 8)
 ```
+
+# Sfigures 5&6
+
+```{r load_data2}
+session_data = read_csv('../../data/session_data.csv')
+mem_data = read_csv('../../data/autobio_interview_scores.csv') %>%
+  dplyr::filter(is.na(exclude_trial)) 
+```
+
+```{r merge_data1}
+session_data_to_merge = dplyr::select(session_data, participant_id, 
+                          trial, session, music_evoked_affect, spont_memory, clip_liking, contains('exposure'))
+
+mem_data = mem_data %>%
+  left_join(., session_data_to_merge, by = c('participant_id', 'trial', 'session'))
+
+mem_data_long = mem_data %>%
+  pivot_longer(c(total_external, total_internal), names_to = 'detail_type', values_to = 'num_details')
+```
+
+# Make sFig 6
+
+```{r}
+intern_extern_summary = mem_data %>%
+  dplyr::filter(is.na(exclude_trial)) %>%
+  pivot_longer(c(total_external, total_internal), names_to = 'detail_type', values_to = 'num_details') %>%
+  group_by(participant_id, condition, detail_type) %>%
+  summarise(mean_details = mean(num_details)) %>%
+  dplyr::mutate(., detail_type = dplyr::recode(detail_type, 'total_external'='External Details', 'total_internal'=' Internal Details'),
+                condition = dplyr::recode(condition, 'U'='Unfamiliar Music', 'F'='Familiar Music', 'C'='Non-music Clips'))
+
+mean_median_summary = mem_data %>%
+  dplyr::filter(is.na(exclude_trial)) %>%
+  pivot_longer(c(total_external, total_internal), names_to = 'detail_type', values_to = 'num_details') %>%
+  group_by(participant_id, condition, detail_type) %>%
+  summarise(num_details = mean(num_details)) %>%
+  dplyr::mutate(., detail_type = dplyr::recode(detail_type, 'total_external'='External Details', 'total_internal'=' Internal Details'),
+                condition = dplyr::recode(condition, 'U'='Unfamiliar Music', 'F'='Familiar Music', 'C'='Non-music Clips'))
+
+raw_summary_familiar_unfamiliar = ggplot(mean_median_summary, aes(x =condition, y = num_details)) +
+  facet_grid(~detail_type) +
+  geom_line(data = intern_extern_summary, aes(y = mean_details, group = participant_id), alpha = 0.1, width = 0.5, color = 'blue',
+            position = position_dodge(0.1)) +
+  stat_summary(fun.data = mean_cl_boot, position = position_nudge(-0.05)) +
+  labs(x = 'Condition', y = '# of Details') +
+  scale_x_discrete(limits = c('Familiar Music', 'Unfamiliar Music', 'Non-music Clips'))
+
+
+ggsave(raw_summary_familiar_unfamiliar, file = '../../results/supplemental_figs/sfig6_prompted_recall_summary.png',
+       width = 8, height = 4)
+
+```
+
+
+# Liking (sFig 5)
+```{r}
+liking_plot = mem_data %>%
+  dplyr::filter(!is.na(clip_liking), clip_liking != 0) %>%
+  group_by(participant_id, condition) %>%
+  summarise(clip_liking = mean(clip_liking)) %>%
+  ggplot(data = ., aes(x = condition, y = clip_liking)) +
+  geom_boxplot(width = 0.1, outlier.shape = NA) +
+  geom_line(aes(group = participant_id), alpha = 0.1, color = 'blue') +
+  labs(x = 'Music Condition', y = 'Self-reported liking of clip') +
+  scale_x_discrete(labels = c('Familiar', 'Unfamiliar')) +
+  scale_y_continuous(breaks = 1:5) +
+  ylim(1, 5)
+
+ggsave(liking_plot, file = '../../results/supplemental_figs/sfig5_liking_condition.png',
+       width = 4, height = 4)
+```
+

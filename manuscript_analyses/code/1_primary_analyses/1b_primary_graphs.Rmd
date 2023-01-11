@@ -1,5 +1,5 @@
 ---
-title: "Graphs of primary analyses"
+title: "1B: Graphs of primary analyses"
 author: "Paul Bloom"
 output: html_document
 ---
@@ -70,7 +70,7 @@ mean_median_summary = mem_data %>%
                 condition = dplyr::recode(condition, 'U'='Unfamiliar Music', 'F'='Familiar Music', 'C'='Non-music Clips')) 
 ```
 
-### Figure 5A: posterior predictions of average internal & external details as a function of music condition
+### Figure 3A: posterior predictions of average internal & external details as a function of music condition
 
 ```{r}
 pred_plot_condition = draws_wide %>%
@@ -219,7 +219,7 @@ music_no_music_contrast_plot = ggplot(draws_wide_comparison_music_no_music, aes(
 ```{r}
 contrast_panel = cowplot::plot_grid(familiar_unfamiliar_contrast_plot, music_no_music_contrast_plot, labels = c('B', 'C'))
 condition_deliberate_recall_plt = cowplot::plot_grid(pred_plot_condition, contrast_panel, labels = c('A', ''), nrow = 2)
-cowplot::save_plot(condition_deliberate_recall_plt, filename = '../../results/fig5_condition_deliberate_recall_plt.png', 
+cowplot::save_plot(condition_deliberate_recall_plt, filename = '../../results/fig3_condition_deliberate_recall_plt.png', 
                    base_width = 12, base_height = 8)
 ```
 
@@ -256,7 +256,6 @@ draws_familiarity = m2_familiarity %>%
   group_by(familiarity, detail_type, .draw) %>%
   summarise(mean_details = mean(.value)) 
 
-# Note: internal proportion coefficient represents the change from familiarity 1 to familiarity 5
 familarity_draws_wide = draws_familiarity %>%
   pivot_wider(names_from = detail_type, values_from = mean_details, id_cols = c('.draw', 'familiarity')) %>%
   mutate(internal_proportion = total_internal / (total_internal + total_external)) %>%
@@ -312,6 +311,6 @@ familiarity_prediction_plot = draws_familiarity %>%
 ```{r}
 familiarity_self_report_grid = cowplot::plot_grid(familiarity_prediction_plot, familiarity_contrast_plot, labels = c('A', 'B'), 
                                                   nrow = 1, rel_widths = c(1, 1.15))
-cowplot::save_plot(familiarity_self_report_grid, filename = '../../results/fig6_familiarity_deliberate_recall_plot.png', 
+cowplot::save_plot(familiarity_self_report_grid, filename = '../../results/fig4_familiarity_deliberate_recall_plot.png', 
                    base_height =4, base_width = 12)
 ```

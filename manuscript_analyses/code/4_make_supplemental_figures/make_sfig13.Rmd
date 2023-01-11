@@ -1,5 +1,5 @@
 ---
-title: "Make Sfigure 9"
+title: "Make Sfigure 13"
 author: "Paul Bloom"
 output: html_document
 ---
@@ -62,6 +62,6 @@ timed_release_descriptive_plot = mem_data_exposure %>%
                    labels = c('Childhood\n5-9 years', 'Adolescence\n14-18 years', 'Young Adulthood\n20-25 years'))
 
 ggsave(timed_release_descriptive_plot, 
-       file = '../../results/supplemental_figs/sfig9_timed_exposure_descriptive.png',
+       file = '../../results/supplemental_figs/sfig13_timed_exposure_descriptive.png',
        width = 5, height = 4)
 ```

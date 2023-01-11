@@ -1,5 +1,5 @@
 ---
-title: "Analysis of Effects of Event Prompts on Recall"
+title: "3: Analysis of Effects of Event Prompts on Recall"
 author: "Paul Bloom"
 output: html_document
 ---
@@ -100,7 +100,7 @@ event_plot_total = ggplot(event_draws_summary, aes(x = forcats::fct_reorder(even
 
 ```{r}
 ggsave(event_plot, height = 10, width = 10, 
-       filename = '../../results/fig10_deliberate_recall_by_prompt.png')
+       filename = '../../results/fig6_deliberate_recall_by_prompt.png')
 ggsave(event_plot_total, height = 10, width = 10, 
-       filename = '../../results/supplemental_figs/sfig10_event_total_details.png')
+       filename = '../../results/supplemental_figs/sfig14_event_total_details.png')
 ```

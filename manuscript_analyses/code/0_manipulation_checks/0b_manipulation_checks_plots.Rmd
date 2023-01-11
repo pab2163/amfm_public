@@ -1,5 +1,5 @@
 ---
-title: "Make Plots for Manipulation Checks (Fig. 4)"
+title: "Make Plots for Manipulation Checks (Fig. 2)"
 author: "Paul Bloom"
 output: html_document
 ---
@@ -30,7 +30,7 @@ load('../../results/models/manipulation_check_models.rda')
 ```
 
 
-# Music Familiarity Manipulation Check (Fig. 4A)
+# Music Familiarity Manipulation Check (Fig. 2A)
 
 * Use the `conditional_effects()` function to get the distribution of the expected value of the posterior predictive distribution (from `m1_familiarity`) for the familiarity rating in each condition. Although the model is ordinal, for visualization purposes, data are plotted as continuous here.
 * On top of the plot generated, also add raw participant-specific mean familiarity ratings (from `session_data_familiarity_summary`) as blue "spaghetti"
@@ -64,7 +64,7 @@ familiarity_condition_plot = plot(familiarity_condition_plot, plot=FALSE, cat_ar
 
 ```
 
-# Music Exposure Timing Manipulation Check (Fig. 4B)
+# Music Exposure Timing Manipulation Check (Fig. 2B)
 
 * Similar to previous plot, generate participant-level summary stats -- the proportion of trials "matching" for each participant in each time window. "Matching" means on a trial, the participant reported highest (or tied for highest) exposure to the song during the time window of release
 * Then, generate the posterior predictions from `m2_matching` as a function of the time window using the `conditional_effects()` function. 
@@ -94,7 +94,7 @@ time_exposure_plot = plot(conditional_effects(m2_matching))[[1]] +
 
 ```
 
-# Spontaneous Music-Evoked Recall Manipulation Check (Fig. 4C)
+# Spontaneous Music-Evoked Recall Manipulation Check (Fig. 2C)
 
 * Use the `conditional_effects()` function to get the distribution of the expected value of the posterior predictive distribution (from `m3_spontaneous`) for the likelihood of a spontaneous memory in each condition. 
 * On top of the plot generated, also add raw participant-specific mean familiarity ratings (from `spontaneous_summary`) as blue "spaghetti"
@@ -122,7 +122,7 @@ spontaneous_memory_plot = plot(conditional_effects(m3_spontaneous))[[1]] +
         strip.text = element_text(size = 12))
 ```
 
-# Check for coincidence between spontaneous and prompted recall (Fig. 4D)
+# Check for coincidence between spontaneous and prompted recall (Fig. 2D)
 
 * Use the `conditional_effects()` function to get the distribution of the expected value of the posterior predictive distribution (from `m4_coincidence`) for the likelihood of a spontaneous memory in each condition. 
 * Plot with extra aesthetics
@@ -139,7 +139,7 @@ coincidence_plot = plot(conditional_effects(m4_coincidence))[[1]] +
         strip.text = element_text(size = 12))
 ```
 
-# Make panel plot Figure 4
+# Make panel plot Figure 2
 
 * Put together all four panels in Fig. 4 using `cowplot::plot_grid()`, then save to the `/results` folder
 
@@ -147,6 +147,6 @@ coincidence_plot = plot(conditional_effects(m4_coincidence))[[1]] +
 prelim_grid = cowplot::plot_grid(familiarity_condition_plot, time_exposure_plot, 
                    spontaneous_memory_plot, coincidence_plot, labels = c('A ', 'B', 'C', 'D'))
 
-cowplot::save_plot(prelim_grid, filename = '../../results/fig4_manip_check.png', 
+cowplot::save_plot(prelim_grid, filename = '../../results/fig2_manip_check.png', 
                    base_width = 12, base_height = 10)
 ```

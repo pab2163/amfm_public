@@ -24,7 +24,7 @@ theme_set(theme_bw())
 load('../../results/models/manipulation_check_models.rda')
 ```
 
-# Music Familiarity Manipulation Check (Fig. 4A)
+# Music Familiarity Manipulation Check (Fig. 2A)
 
 Differences in participant-reported familiarity between clips in the familiar music (`F`) vs. unfamiliar music (`U`) conditions. The table below shows posterior medians and 95% HDI, on the probit scale. 
 
@@ -37,7 +37,7 @@ emmeans::emmeans(m1_familiarity, specs = 'condition') %>%
   DT::datatable()
 ```
 
-# Music Exposure Timing Manipulation Check (Fig. 4B)
+# Music Exposure Timing Manipulation Check (Fig. 2B)
 
 Estimates (posterior medians) and 95% HDI for the average proportion of trials where participants rated having the most (or tied for most) exposure during the time period of release, as a function of the time period of release. 
 
@@ -59,7 +59,7 @@ emmeans::emmeans(m3_spontaneous, specs = 'condition') %>%
 ```
 
 
-# Coincidence between spontaneous and prompted recall (Fig. 4D)
+# Coincidence between spontaneous and prompted recall (Fig. 2D)
 
 All pairwise comparisons for differences in the likelihood of coincidence between spontaneous and prompted memory as a function of condition. The table below shows posterior medians and 95% HDI for each contrast in log odds. 
 

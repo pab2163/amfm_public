@@ -1,5 +1,5 @@
 ---
-title: "Secondary Analysis Stats"
+title: "2C: Secondary Analysis Stats"
 author: "Paul Bloom"
 output: html_document
 ---
@@ -27,7 +27,7 @@ mem_data = read_csv('../../data/autobio_interview_scores.csv') %>%
 ```
 
 
-# Effects of music manipulation on clip-evoked affect (Fig. 7A)
+# Effects of music manipulation on clip-evoked affect (sFig. 9A)
 
 Differences in participant-reported affect evoked by clips in each condition. The table below shows posterior medians and 95% HDI, on the probit scale.  
 
@@ -39,7 +39,7 @@ emmeans::emmeans(m1_mood, specs = 'condition') %>%
 ```
 
 
-# Associations between clip-evoked affect and prompted memory recall (Fig. 7B-C)
+# Associations between clip-evoked affect and prompted memory recall (sFig. 9B-C)
 
 Similar to primary analysis 2 with familiarity (see `1a_primary_analysis/1c_primary_stats.Rmd`), use emmeans::emtrends() and separate linear regressions to calculate marginal associations between affect and prompted memory recall of internal & external details. 
 
@@ -106,7 +106,7 @@ mood_deliberate_trends %>%
 ```
 
 
-# Associations between spontaneous and prompted memory recall (Fig. 8)
+# Associations between spontaneous and prompted memory recall (sFig. 11)
 
 First, extract posterior predictions as before, then compute all contrasts for each posterior draw. 
 
@@ -155,6 +155,7 @@ draws_wide_comparison_spontaneous %>%
 # Associations between music exposure during the time period of release and prompted recall
 
 Here, 2 versions of the analysis are reported:
+
 * The preregistered version, which does not contain covariates for time (and arguably is then confounded by the time period of the prompted memory)
 * An alternate model that does covary for time (not preregistered)
 
